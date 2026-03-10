@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { fetchRuns, isCloudEnabled, saveRun } from './data/runStore';
 
 const stats = [
   { label: 'Distance', value: '8.4 km' },
@@ -6,9 +7,6 @@ const stats = [
 ];
 
 const initialRuns = [];
-
-const STORAGE_KEY = 'runmate:runs';
-const DEMO_RUN_IDS = new Set(['run-1', 'run-2']);
 
 function getCurrentTimeValue() {
   const now = new Date();
@@ -96,15 +94,6 @@ function calculatePace(distanceValue, durationValue) {
   return `${minutes}:${String(seconds).padStart(2, '0')} /km`;
 }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
-    reader.readAsDataURL(file);
-  });
-}
-
 function formatDistance(distanceValue) {
   const numericDistance = parseDistanceKm(distanceValue);
 
@@ -136,42 +125,12 @@ function formatDuration(durationValue) {
   return `${hours}h ${minutes}m`;
 }
 
-async function createPhotoObjects(runId, files) {
-  const photos = await Promise.all(
-    files.map(async (file) => ({
-      id: `${runId}-${file.name}-${file.lastModified}`,
-      title: file.name.replace(/\.[^.]+$/, ''),
-      src: await fileToDataUrl(file),
-    })),
-  );
-
-  return photos;
-}
-
-function loadStoredRuns() {
-  try {
-    const storedRuns = window.localStorage.getItem(STORAGE_KEY);
-    if (!storedRuns) {
-      return initialRuns;
-    }
-
-    const parsedRuns = JSON.parse(storedRuns);
-    if (!Array.isArray(parsedRuns)) {
-      return initialRuns;
-    }
-
-    return parsedRuns.filter((run) => !DEMO_RUN_IDS.has(run.id));
-  } catch {
-    return initialRuns;
-  }
-}
-
 export default function App() {
-  const [runs, setRuns] = useState(loadStoredRuns);
+  const [runs, setRuns] = useState(initialRuns);
   const [page, setPage] = useState('home');
   const [displayPage, setDisplayPage] = useState('home');
   const [transitionStage, setTransitionStage] = useState('entered');
-  const [selectedRunId, setSelectedRunId] = useState(() => loadStoredRuns()[0]?.id ?? '');
+  const [selectedRunId, setSelectedRunId] = useState('');
   const [newRun, setNewRun] = useState({
     title: '',
     date: '',
@@ -183,6 +142,8 @@ export default function App() {
   });
   const [formError, setFormError] = useState('');
   const [isSavingRun, setIsSavingRun] = useState(false);
+  const [isLoadingRuns, setIsLoadingRuns] = useState(true);
+  const [syncMessage, setSyncMessage] = useState('');
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) ?? runs[0],
@@ -197,18 +158,38 @@ export default function App() {
     newRun.photos.length > 0;
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(runs));
-    } catch {
-      setFormError('Storage is full. Remove some photos or use smaller images.');
-    }
-  }, [runs]);
+    let cancelled = false;
 
-  useEffect(() => {
-    if (!runs.some((run) => run.id === selectedRunId) && runs[0]) {
-      setSelectedRunId(runs[0].id);
+    async function loadRuns() {
+      try {
+        setIsLoadingRuns(true);
+        const loadedRuns = await fetchRuns();
+        if (cancelled) {
+          return;
+        }
+
+        setRuns(loadedRuns);
+        setSelectedRunId((current) =>
+          loadedRuns.some((run) => run.id === current) ? current : (loadedRuns[0]?.id ?? ''),
+        );
+        setSyncMessage(isCloudEnabled() ? 'Shared cloud sync is active.' : 'Local-only mode is active.');
+      } catch {
+        if (!cancelled) {
+          setSyncMessage('Runs could not be loaded. The app is still available.');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingRuns(false);
+        }
+      }
     }
-  }, [runs, selectedRunId]);
+
+    loadRuns();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (page === displayPage) {
@@ -236,6 +217,22 @@ export default function App() {
   function openRunDetails(runId) {
     setSelectedRunId(runId);
     setPage('details');
+  }
+
+  async function refreshRuns() {
+    try {
+      setIsLoadingRuns(true);
+      const loadedRuns = await fetchRuns();
+      setRuns(loadedRuns);
+      setSelectedRunId((current) =>
+        loadedRuns.some((run) => run.id === current) ? current : (loadedRuns[0]?.id ?? ''),
+      );
+      setSyncMessage(isCloudEnabled() ? 'Runs refreshed from cloud.' : 'Runs refreshed from this device.');
+    } catch {
+      setSyncMessage('Runs could not be refreshed right now.');
+    } finally {
+      setIsLoadingRuns(false);
+    }
   }
 
   function handleFieldChange(event) {
@@ -267,9 +264,7 @@ export default function App() {
 
     try {
       setIsSavingRun(true);
-      const runId = `run-${Date.now()}`;
       const createdRun = {
-        id: runId,
         title: newRun.title.trim(),
         date: newRun.date,
         time: getCurrentTimeValue(),
@@ -278,11 +273,13 @@ export default function App() {
         pace,
         location: newRun.location.trim() || 'No location',
         note: newRun.note.trim() || 'No note',
-        photos: await createPhotoObjects(runId, newRun.photos),
+        createdAtMs: Date.now(),
+        photos: newRun.photos,
       };
 
-      setRuns((current) => [createdRun, ...current]);
-      setSelectedRunId(createdRun.id);
+      const savedRun = await saveRun(createdRun);
+      setRuns((current) => [savedRun, ...current]);
+      setSelectedRunId(savedRun.id);
       setPage('home');
       setNewRun({
         title: '',
@@ -294,9 +291,16 @@ export default function App() {
         photos: [],
       });
       setFormError('');
+      setSyncMessage(
+        isCloudEnabled() ? 'Run saved and shared across devices.' : 'Run saved on this device only.',
+      );
       event.target.reset();
     } catch {
-      setFormError('Photos could not be saved on this device.');
+      setFormError(
+        isCloudEnabled()
+          ? 'Run could not be uploaded. Check the Firebase config and rules.'
+          : 'Photos could not be saved on this device.',
+      );
     } finally {
       setIsSavingRun(false);
     }
@@ -320,10 +324,12 @@ export default function App() {
                 <p className="topbar-label">Journal</p>
                 <h1>Run Journal</h1>
               </div>
-              <button className="icon-button" type="button" onClick={() => setPage('home')}>
-                R
+              <button className="icon-button" type="button" onClick={refreshRuns}>
+                {isLoadingRuns ? '...' : 'R'}
               </button>
             </header>
+
+            {syncMessage ? <p className="sync-banner">{syncMessage}</p> : null}
 
             <section className="stats-grid" aria-label="Run stats">
               {stats.map((stat) => (
@@ -335,7 +341,13 @@ export default function App() {
             </section>
 
             <section className="run-list">
-              {runs.length ? (
+              {isLoadingRuns ? (
+                <section className="empty-state">
+                  <p className="topbar-label">Loading</p>
+                  <h2>Fetching runs</h2>
+                  <p>Your journal is loading.</p>
+                </section>
+              ) : runs.length ? (
                 runs.map((run) => {
                   const coverPhoto = run.photos[0]?.src;
 
