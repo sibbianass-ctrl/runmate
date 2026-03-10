@@ -1,4 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
+import {
+  ArrowLeft,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import { deletePhotoFromRun, deleteRun, fetchRuns, isCloudEnabled, saveRun, updateRun } from './data/runStore';
 
 const stats = [
@@ -566,10 +579,14 @@ export default function App() {
               </div>
               <div className="topbar-actions">
                 <button className="icon-button" type="button" onClick={() => navigateTo('calendar', 'forward')}>
-                  C
+                  <CalendarDays size={18} strokeWidth={2.3} />
                 </button>
                 <button className="icon-button" type="button" onClick={refreshRuns}>
-                  {isLoadingRuns ? '...' : 'R'}
+                  <RefreshCw
+                    size={18}
+                    strokeWidth={2.3}
+                    className={isLoadingRuns ? 'spin-icon' : ''}
+                  />
                 </button>
               </div>
             </header>
@@ -631,9 +648,8 @@ export default function App() {
               )}
             </section>
 
-            <button className="fab" type="button" onClick={openCreateRun}>
-              <span className="fab-plus">+</span>
-              <span>New run</span>
+            <button className="fab fab-icon-only" type="button" onClick={openCreateRun} aria-label="Add run">
+              <Plus size={24} strokeWidth={2.6} />
             </button>
           </section>
         ) : null}
@@ -643,8 +659,8 @@ export default function App() {
             className={`screen page-shell page-${transitionStage} page-${pageDirection} create-screen`}
           >
             <header className="topbar">
-              <button className="icon-button" type="button" onClick={() => navigateTo('home', 'backward')}>
-                {'<'}
+              <button className="icon-button" type="button" onClick={() => navigateTo('home', 'backward')} aria-label="Back">
+                <ArrowLeft size={18} strokeWidth={2.5} />
               </button>
               <div className="topbar-copy">
                 <p className="topbar-label">{editingRun ? 'Edit run' : 'Add run'}</p>
@@ -744,8 +760,8 @@ export default function App() {
             className={`screen page-shell page-${transitionStage} page-${pageDirection} calendar-screen`}
           >
             <header className="topbar">
-              <button className="icon-button" type="button" onClick={() => navigateTo('home', 'backward')}>
-                {'<'}
+              <button className="icon-button" type="button" onClick={() => navigateTo('home', 'backward')} aria-label="Back">
+                <ArrowLeft size={18} strokeWidth={2.5} />
               </button>
               <div className="topbar-copy">
                 <p className="topbar-label">Calendar</p>
@@ -756,12 +772,22 @@ export default function App() {
 
             <section className="calendar-card">
               <div className="calendar-nav">
-                <button className="icon-button" type="button" onClick={() => setCalendarMonth((current) => shiftMonth(current, -1))}>
-                  {'<'}
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => setCalendarMonth((current) => shiftMonth(current, -1))}
+                  aria-label="Previous month"
+                >
+                  <ChevronLeft size={18} strokeWidth={2.5} />
                 </button>
                 <p>{formatMonthLabel(calendarMonth)}</p>
-                <button className="icon-button" type="button" onClick={() => setCalendarMonth((current) => shiftMonth(current, 1))}>
-                  {'>'}
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => setCalendarMonth((current) => shiftMonth(current, 1))}
+                  aria-label="Next month"
+                >
+                  <ChevronRight size={18} strokeWidth={2.5} />
                 </button>
               </div>
 
@@ -856,8 +882,9 @@ export default function App() {
                   className="icon-button icon-button-overlay"
                   type="button"
                   onClick={() => navigateTo('home', 'backward')}
+                  aria-label="Back"
                 >
-                  {'<'}
+                  <ArrowLeft size={18} strokeWidth={2.5} />
                 </button>
                 <div className="topbar-copy">
                   <h1>{formatRunDate(selectedRun.date, selectedRun.time)} - {selectedRun.time}</h1>
@@ -880,7 +907,8 @@ export default function App() {
                 <h3>Details</h3>
                 <div className="details-actions">
                   <button className="secondary-button" type="button" onClick={openEditRun}>
-                    Edit run
+                    <Pencil size={16} strokeWidth={2.2} />
+                    <span>Edit run</span>
                   </button>
                   <button
                     className="danger-button"
@@ -888,7 +916,8 @@ export default function App() {
                     onClick={handleDeleteRun}
                     disabled={isDeletingRun}
                   >
-                    {isDeletingRun ? 'Deleting...' : 'Delete run'}
+                    <Trash2 size={16} strokeWidth={2.2} />
+                    <span>{isDeletingRun ? 'Deleting...' : 'Delete run'}</span>
                   </button>
                 </div>
               </div>
@@ -937,8 +966,8 @@ export default function App() {
                 <p>
                   {activePhotoIndex + 1} / {selectedRun.photos.length}
                 </p>
-                <button className="icon-button gallery-close" type="button" onClick={closeGallery}>
-                  x
+                <button className="icon-button gallery-close" type="button" onClick={closeGallery} aria-label="Close gallery">
+                  <X size={18} strokeWidth={2.5} />
                 </button>
               </div>
               <img
@@ -953,13 +982,16 @@ export default function App() {
                   type="button"
                   onClick={() => setIsPhotoZoomed((current) => !current)}
                 >
-                  {isPhotoZoomed ? 'Fit' : 'Zoom'}
+                  {isPhotoZoomed ? <ZoomOut size={16} strokeWidth={2.2} /> : <ZoomIn size={16} strokeWidth={2.2} />}
+                  <span>{isPhotoZoomed ? 'Fit' : 'Zoom'}</span>
                 </button>
                 <button className="secondary-button gallery-button" type="button" onClick={showPreviousPhoto}>
-                  Prev
+                  <ChevronLeft size={16} strokeWidth={2.2} />
+                  <span>Prev</span>
                 </button>
                 <button className="secondary-button gallery-button" type="button" onClick={showNextPhoto}>
-                  Next
+                  <ChevronRight size={16} strokeWidth={2.2} />
+                  <span>Next</span>
                 </button>
                 <button
                   className="danger-button gallery-button"
@@ -967,7 +999,8 @@ export default function App() {
                   onClick={handleDeletePhoto}
                   disabled={isDeletingPhoto}
                 >
-                  {isDeletingPhoto ? 'Deleting...' : 'Delete'}
+                  <Trash2 size={16} strokeWidth={2.2} />
+                  <span>{isDeletingPhoto ? 'Deleting...' : 'Delete'}</span>
                 </button>
               </div>
             </div>

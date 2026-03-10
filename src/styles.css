@@ -299,6 +299,14 @@ body::-webkit-scrollbar-thumb:hover {
     background 160ms ease;
 }
 
+.icon-button svg {
+  display: block;
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
 .icon-button:active,
 .secondary-button:active,
 .primary-button:active,
@@ -468,9 +476,10 @@ body::-webkit-scrollbar-thumb:hover {
   box-shadow: 0 20px 34px rgba(120, 79, 179, 0.24);
 }
 
-.fab-plus {
-  font-size: 2rem;
-  line-height: 1;
+.fab-icon-only {
+  width: 4.1rem;
+  padding: 0;
+  justify-content: center;
 }
 
 .form-card,
@@ -654,6 +663,11 @@ body::-webkit-scrollbar-thumb:hover {
     box-shadow 160ms ease,
     background 160ms ease,
     color 160ms ease;
+}
+
+.secondary-button,
+.danger-button {
+  gap: 0.45rem;
 }
 
 .upload-button {
@@ -975,6 +989,16 @@ body::-webkit-scrollbar-thumb:hover {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
   }
 }
 
