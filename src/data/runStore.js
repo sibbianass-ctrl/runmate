@@ -1,6 +1,15 @@
 import { getApp, getApps, initializeApp } from 'firebase/app';
-import { addDoc, collection, getDocs, getFirestore, orderBy, query } from 'firebase/firestore';
-import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  getFirestore,
+  orderBy,
+  query,
+} from 'firebase/firestore';
+import { deleteObject, getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
 
 const STORAGE_KEY = 'runmate:runs';
 
@@ -120,4 +129,28 @@ export async function saveRun(runInput) {
     ...docPayload,
     id: docRef.id,
   };
+}
+
+export async function deleteRun(run) {
+  if (!run?.id) {
+    return;
+  }
+
+  if (!hasFirebaseConfig) {
+    const nextRuns = loadLocalRuns().filter((storedRun) => storedRun.id !== run.id);
+    saveLocalRuns(nextRuns);
+    return;
+  }
+
+  await Promise.all(
+    (run.photos ?? []).map(async (photo) => {
+      try {
+        await deleteObject(ref(storage, photo.src));
+      } catch {
+        // Ignore missing/deleted photos so the run record can still be removed.
+      }
+    }),
+  );
+
+  await deleteDoc(doc(db, 'runs', run.id));
 }

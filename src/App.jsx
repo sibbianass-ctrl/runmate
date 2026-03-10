@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchRuns, isCloudEnabled, saveRun } from './data/runStore';
+import { deleteRun, fetchRuns, isCloudEnabled, saveRun } from './data/runStore';
 
 const stats = [
   { label: 'Distance', value: '8.4 km' },
@@ -143,6 +143,7 @@ export default function App() {
   const [formError, setFormError] = useState('');
   const [isSavingRun, setIsSavingRun] = useState(false);
   const [isLoadingRuns, setIsLoadingRuns] = useState(true);
+  const [isDeletingRun, setIsDeletingRun] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
 
   const selectedRun = useMemo(
@@ -232,6 +233,33 @@ export default function App() {
       setSyncMessage('Runs could not be refreshed right now.');
     } finally {
       setIsLoadingRuns(false);
+    }
+  }
+
+  async function handleDeleteRun() {
+    if (!selectedRun) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete "${selectedRun.title}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setIsDeletingRun(true);
+      await deleteRun(selectedRun);
+      const nextRuns = runs.filter((run) => run.id !== selectedRun.id);
+      setRuns(nextRuns);
+      setSelectedRunId(nextRuns[0]?.id ?? '');
+      setPage('home');
+      setSyncMessage(
+        isCloudEnabled() ? 'Run deleted from shared storage.' : 'Run deleted from this device.',
+      );
+    } catch {
+      setSyncMessage('Run could not be deleted right now.');
+    } finally {
+      setIsDeletingRun(false);
     }
   }
 
@@ -508,7 +536,17 @@ export default function App() {
             </section>
 
             <section className="details-card">
-              <h3>Details</h3>
+              <div className="details-card-header">
+                <h3>Details</h3>
+                <button
+                  className="danger-button"
+                  type="button"
+                  onClick={handleDeleteRun}
+                  disabled={isDeletingRun}
+                >
+                  {isDeletingRun ? 'Deleting...' : 'Delete run'}
+                </button>
+              </div>
               <div className="details-grid">
                 <p>Created</p>
                 <strong>{formatRunDate(selectedRun.date, selectedRun.time)} - {selectedRun.time}</strong>
