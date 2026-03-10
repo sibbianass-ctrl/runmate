@@ -183,6 +183,7 @@ export default function App() {
   const [page, setPage] = useState('home');
   const [displayPage, setDisplayPage] = useState('home');
   const [transitionStage, setTransitionStage] = useState('entered');
+  const [pageDirection, setPageDirection] = useState('forward');
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
   const [selectedRunId, setSelectedRunId] = useState('');
   const [editingRunId, setEditingRunId] = useState('');
@@ -293,9 +294,14 @@ export default function App() {
     };
   }, [displayPage, page]);
 
+  function navigateTo(nextPage, direction = 'forward') {
+    setPageDirection(direction);
+    setPage(nextPage);
+  }
+
   function openRunDetails(runId) {
     setSelectedRunId(runId);
-    setPage('details');
+    navigateTo('details', 'forward');
   }
 
   function openCreateRun() {
@@ -310,7 +316,7 @@ export default function App() {
       photos: [],
     });
     setFormError('');
-    setPage('create');
+    navigateTo('create', 'forward');
   }
 
   function openEditRun() {
@@ -329,7 +335,7 @@ export default function App() {
       photos: [],
     });
     setFormError('');
-    setPage('create');
+    navigateTo('create', 'forward');
   }
 
   function openDateRuns(dateKey) {
@@ -339,7 +345,7 @@ export default function App() {
     }
 
     setSelectedRunId(runsForDate[0].id);
-    setPage('details');
+    navigateTo('details', 'forward');
   }
 
   async function refreshRuns() {
@@ -374,7 +380,7 @@ export default function App() {
       const nextRuns = runs.filter((run) => run.id !== selectedRun.id);
       setRuns(nextRuns);
       setSelectedRunId(nextRuns[0]?.id ?? '');
-      setPage('home');
+      navigateTo('home', 'backward');
       setSyncMessage(
         isCloudEnabled() ? 'Run deleted from shared storage.' : 'Run deleted from this device.',
       );
@@ -493,7 +499,7 @@ export default function App() {
           : [savedRun, ...current],
       );
       setSelectedRunId(savedRun.id);
-      setPage(editingRun ? 'details' : 'home');
+      navigateTo(editingRun ? 'details' : 'home', 'backward');
       setEditingRunId('');
       setNewRun({
         title: '',
@@ -541,15 +547,25 @@ export default function App() {
       </div>
 
       <main className="app-shell">
+        <div className="app-backdrop" aria-hidden="true">
+          <div className="ambient ambient-one" />
+          <div className="ambient ambient-two" />
+          <div className="ambient ambient-three" />
+          <div className="mesh mesh-one" />
+          <div className="mesh mesh-two" />
+        </div>
         {displayPage === 'home' ? (
-          <section className={`screen page-shell page-${transitionStage}`}>
+          <section
+            className={`screen page-shell page-${transitionStage} page-${pageDirection} home-screen`}
+          >
             <header className="topbar">
               <div>
                 <p className="topbar-label">Journal</p>
                 <h1>Run Journal</h1>
+                <p className="hero-subtitle">Build a soft little archive for every run you keep.</p>
               </div>
               <div className="topbar-actions">
-                <button className="icon-button" type="button" onClick={() => setPage('calendar')}>
+                <button className="icon-button" type="button" onClick={() => navigateTo('calendar', 'forward')}>
                   C
                 </button>
                 <button className="icon-button" type="button" onClick={refreshRuns}>
@@ -623,14 +639,21 @@ export default function App() {
         ) : null}
 
         {displayPage === 'create' ? (
-          <section className={`screen page-shell page-${transitionStage}`}>
+          <section
+            className={`screen page-shell page-${transitionStage} page-${pageDirection} create-screen`}
+          >
             <header className="topbar">
-              <button className="icon-button" type="button" onClick={() => setPage('home')}>
+              <button className="icon-button" type="button" onClick={() => navigateTo('home', 'backward')}>
                 {'<'}
               </button>
               <div className="topbar-copy">
                 <p className="topbar-label">{editingRun ? 'Edit run' : 'Add run'}</p>
                 <h1>{editingRun ? 'Edit run' : 'New run'}</h1>
+                <p className="hero-subtitle">
+                  {editingRun
+                    ? 'Refine the memory, keep the same atmosphere.'
+                    : 'Shape the moment with distance, notes, and photos.'}
+                </p>
               </div>
             </header>
 
@@ -717,14 +740,17 @@ export default function App() {
         ) : null}
 
         {displayPage === 'calendar' ? (
-          <section className={`screen page-shell page-${transitionStage}`}>
+          <section
+            className={`screen page-shell page-${transitionStage} page-${pageDirection} calendar-screen`}
+          >
             <header className="topbar">
-              <button className="icon-button" type="button" onClick={() => setPage('home')}>
+              <button className="icon-button" type="button" onClick={() => navigateTo('home', 'backward')}>
                 {'<'}
               </button>
               <div className="topbar-copy">
                 <p className="topbar-label">Calendar</p>
                 <h1>{formatMonthLabel(calendarMonth)}</h1>
+                <p className="hero-subtitle">Browse your runs month by month and jump back into them.</p>
               </div>
             </header>
 
@@ -812,7 +838,9 @@ export default function App() {
         ) : null}
 
         {displayPage === 'details' && selectedRun ? (
-          <section className={`screen page-shell page-${transitionStage}`}>
+          <section
+            className={`screen page-shell page-${transitionStage} page-${pageDirection} details-screen`}
+          >
             <section
               className="details-hero"
               style={
@@ -824,7 +852,11 @@ export default function App() {
               }
             >
               <header className="topbar topbar-overlay">
-                <button className="icon-button icon-button-overlay" type="button" onClick={() => setPage('home')}>
+                <button
+                  className="icon-button icon-button-overlay"
+                  type="button"
+                  onClick={() => navigateTo('home', 'backward')}
+                >
                   {'<'}
                 </button>
                 <div className="topbar-copy">
