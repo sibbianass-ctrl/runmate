@@ -8,6 +8,7 @@ import {
   getFirestore,
   orderBy,
   query,
+  updateDoc,
 } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
 
@@ -78,6 +79,7 @@ async function createCloudPhotos(runId, files) {
       return {
         id: `${runId}-${file.name}-${file.lastModified}`,
         title: file.name.replace(/\.[^.]+$/, ''),
+        path: photoRef.fullPath,
         src: await getDownloadURL(photoRef),
       };
     }),
@@ -129,6 +131,82 @@ export async function saveRun(runInput) {
     ...docPayload,
     id: docRef.id,
   };
+}
+
+export async function updateRun(runId, runInput, newFiles = []) {
+  if (!runId) {
+    throw new Error('Run id is required');
+  }
+
+  if (!hasFirebaseConfig) {
+    const storedRuns = loadLocalRuns();
+    const currentRun = storedRuns.find((run) => run.id === runId);
+    if (!currentRun) {
+      throw new Error('Run not found');
+    }
+
+    const nextPhotos = newFiles.length ? await createLocalPhotos(runId, newFiles) : [];
+    const updatedRun = {
+      ...currentRun,
+      ...runInput,
+      id: runId,
+      photos: [...(runInput.photos ?? currentRun.photos ?? []), ...nextPhotos],
+    };
+
+    saveLocalRuns(storedRuns.map((run) => (run.id === runId ? updatedRun : run)));
+    return updatedRun;
+  }
+
+  const nextPhotos = newFiles.length ? await createCloudPhotos(runId, newFiles) : [];
+  const docPayload = {
+    ...runInput,
+    photos: [...(runInput.photos ?? []), ...nextPhotos],
+  };
+
+  await updateDoc(doc(db, 'runs', runId), docPayload);
+  return {
+    ...docPayload,
+    id: runId,
+  };
+}
+
+export async function deletePhotoFromRun(run, photoId) {
+  if (!run?.id || !photoId) {
+    return run;
+  }
+
+  const remainingPhotos = (run.photos ?? []).filter((photo) => photo.id !== photoId);
+  const removedPhoto = (run.photos ?? []).find((photo) => photo.id === photoId);
+
+  if (!hasFirebaseConfig) {
+    const storedRuns = loadLocalRuns();
+    const updatedRun = {
+      ...run,
+      photos: remainingPhotos,
+    };
+
+    saveLocalRuns(storedRuns.map((storedRun) => (storedRun.id === run.id ? updatedRun : storedRun)));
+    return updatedRun;
+  }
+
+  if (removedPhoto) {
+    try {
+      await deleteObject(ref(storage, removedPhoto.path || removedPhoto.src));
+    } catch {
+      // Ignore missing files so metadata can still be updated.
+    }
+  }
+
+  const updatedRun = {
+    ...run,
+    photos: remainingPhotos,
+  };
+
+  await updateDoc(doc(db, 'runs', run.id), {
+    photos: remainingPhotos,
+  });
+
+  return updatedRun;
 }
 
 export async function deleteRun(run) {

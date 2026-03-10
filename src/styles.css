@@ -98,6 +98,12 @@ body::-webkit-scrollbar-thumb:hover {
   gap: 0.75rem;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .topbar h1 {
   margin: 0.2rem 0 0;
   font-size: 2rem;
@@ -281,12 +287,125 @@ body::-webkit-scrollbar-thumb:hover {
 }
 
 .form-card,
-.details-card {
+.details-card,
+.calendar-card {
   padding: 1rem;
   border-radius: 1.7rem;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(111, 100, 128, 0.08);
   box-shadow: 0 12px 28px rgba(66, 52, 87, 0.08);
+}
+
+.calendar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.calendar-nav p {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.calendar-weekdays span {
+  text-align: center;
+  font-size: 0.78rem;
+  color: #7b6f89;
+  font-weight: 700;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.calendar-cell {
+  min-height: 4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border: 0;
+  border-radius: 1rem;
+  background: rgba(18, 37, 59, 0.08);
+  color: #2b2337;
+}
+
+.calendar-cell span {
+  font-weight: 700;
+}
+
+.calendar-cell strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  min-height: 1.4rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #dac4ef;
+  color: #231a32;
+  font-size: 0.72rem;
+}
+
+.calendar-cell-empty {
+  background: transparent;
+}
+
+.calendar-cell-has-runs {
+  background: rgba(218, 196, 239, 0.38);
+}
+
+.calendar-cell-today {
+  outline: 2px solid rgba(141, 188, 232, 0.7);
+}
+
+.calendar-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.calendar-run-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.95rem 1rem;
+  border: 0;
+  border-radius: 1.2rem;
+  background: rgba(18, 37, 59, 0.08);
+  text-align: left;
+  color: inherit;
+}
+
+.calendar-run-row h3,
+.calendar-run-row p {
+  margin: 0;
+}
+
+.calendar-run-row h3 {
+  margin-top: 0.2rem;
+  margin-bottom: 0.2rem;
+  font-size: 1.05rem;
+}
+
+.calendar-run-row p:last-child,
+.calendar-empty {
+  color: #62566f;
 }
 
 .run-form {
@@ -328,7 +447,8 @@ body::-webkit-scrollbar-thumb:hover {
 }
 
 .upload-button,
-.primary-button {
+.primary-button,
+.secondary-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -354,6 +474,11 @@ body::-webkit-scrollbar-thumb:hover {
 .primary-button {
   background: #dac4ef;
   color: #231a32;
+}
+
+.secondary-button {
+  background: rgba(18, 37, 59, 0.08);
+  color: #2b2337;
 }
 
 .primary-button:disabled {
@@ -423,6 +548,12 @@ body::-webkit-scrollbar-thumb:hover {
   margin-bottom: 0;
 }
 
+.details-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .danger-button {
   min-height: 2.6rem;
   padding: 0 0.95rem;
@@ -475,6 +606,8 @@ body::-webkit-scrollbar-thumb:hover {
 .photo-thumb {
   aspect-ratio: 1;
   overflow: hidden;
+  padding: 0;
+  border: 0;
   border-radius: 1.15rem;
   background: #d8dde5;
 }
@@ -484,6 +617,80 @@ body::-webkit-scrollbar-thumb:hover {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.gallery-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.gallery-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(10, 10, 16, 0.82);
+}
+
+.gallery-panel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 32rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.gallery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: #fff;
+}
+
+.gallery-header p {
+  margin: 0;
+  font-weight: 700;
+}
+
+.gallery-close {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.gallery-image {
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 1.4rem;
+  background: rgba(255, 255, 255, 0.06);
+  transition: transform 180ms ease;
+  transform-origin: center;
+}
+
+.gallery-image-zoomed {
+  transform: scale(1.8);
+  cursor: zoom-out;
+}
+
+.gallery-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.gallery-button {
+  min-width: 6rem;
+}
+
+.gallery-controls .secondary-button {
+  background: rgba(255, 255, 255, 0.9);
 }
 
 @keyframes page-enter {

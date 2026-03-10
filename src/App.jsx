@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { deleteRun, fetchRuns, isCloudEnabled, saveRun } from './data/runStore';
+import { deletePhotoFromRun, deleteRun, fetchRuns, isCloudEnabled, saveRun, updateRun } from './data/runStore';
 
 const stats = [
   { label: 'Distance', value: '8.4 km' },
@@ -30,6 +30,49 @@ function formatRunDate(dateString, timeString) {
     month: 'short',
     day: 'numeric',
   }).format(date);
+}
+
+function formatMonthLabel(date) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    year: 'numeric',
+  }).format(date);
+}
+
+function formatCalendarKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function startOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function shiftMonth(date, offset) {
+  return new Date(date.getFullYear(), date.getMonth() + offset, 1);
+}
+
+function buildCalendarDays(monthDate) {
+  const firstDay = startOfMonth(monthDate);
+  const startWeekday = (firstDay.getDay() + 6) % 7;
+  const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+  const days = [];
+
+  for (let index = 0; index < startWeekday; index += 1) {
+    days.push(null);
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    days.push(new Date(monthDate.getFullYear(), monthDate.getMonth(), day));
+  }
+
+  while (days.length % 7 !== 0) {
+    days.push(null);
+  }
+
+  return days;
 }
 
 function parseDistanceKm(distanceValue) {
@@ -125,12 +168,24 @@ function formatDuration(durationValue) {
   return `${hours}h ${minutes}m`;
 }
 
+function getEditableDistanceValue(distanceValue) {
+  const numericDistance = parseDistanceKm(distanceValue);
+  return numericDistance ? String(numericDistance) : '';
+}
+
+function getEditableDurationValue(durationValue) {
+  const durationMinutes = parseDurationMinutes(durationValue);
+  return durationMinutes ? String(Math.round(durationMinutes)) : '';
+}
+
 export default function App() {
   const [runs, setRuns] = useState(initialRuns);
   const [page, setPage] = useState('home');
   const [displayPage, setDisplayPage] = useState('home');
   const [transitionStage, setTransitionStage] = useState('entered');
+  const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
   const [selectedRunId, setSelectedRunId] = useState('');
+  const [editingRunId, setEditingRunId] = useState('');
   const [newRun, setNewRun] = useState({
     title: '',
     date: '',
@@ -144,19 +199,42 @@ export default function App() {
   const [isSavingRun, setIsSavingRun] = useState(false);
   const [isLoadingRuns, setIsLoadingRuns] = useState(true);
   const [isDeletingRun, setIsDeletingRun] = useState(false);
+  const [isDeletingPhoto, setIsDeletingPhoto] = useState(false);
+  const [activePhotoIndex, setActivePhotoIndex] = useState(-1);
+  const [isPhotoZoomed, setIsPhotoZoomed] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) ?? runs[0],
     [runs, selectedRunId],
   );
+  const editingRun = useMemo(
+    () => runs.find((run) => run.id === editingRunId) ?? null,
+    [runs, editingRunId],
+  );
+  const runsByDate = useMemo(() => {
+    return runs.reduce((accumulator, run) => {
+      const key = run.date;
+      if (!key) {
+        return accumulator;
+      }
+
+      if (!accumulator[key]) {
+        accumulator[key] = [];
+      }
+
+      accumulator[key].push(run);
+      return accumulator;
+    }, {});
+  }, [runs]);
+  const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
 
   const isFormValid =
     Boolean(newRun.title.trim()) &&
     Boolean(newRun.date) &&
     Boolean(newRun.distance.trim()) &&
     Boolean(newRun.duration.trim()) &&
-    newRun.photos.length > 0;
+    (editingRun ? true : newRun.photos.length > 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,6 +298,50 @@ export default function App() {
     setPage('details');
   }
 
+  function openCreateRun() {
+    setEditingRunId('');
+    setNewRun({
+      title: '',
+      date: '',
+      distance: '',
+      duration: '',
+      location: '',
+      note: '',
+      photos: [],
+    });
+    setFormError('');
+    setPage('create');
+  }
+
+  function openEditRun() {
+    if (!selectedRun) {
+      return;
+    }
+
+    setEditingRunId(selectedRun.id);
+    setNewRun({
+      title: selectedRun.title,
+      date: selectedRun.date,
+      distance: getEditableDistanceValue(selectedRun.distance),
+      duration: getEditableDurationValue(selectedRun.duration),
+      location: selectedRun.location === 'No location' ? '' : selectedRun.location,
+      note: selectedRun.note === 'No note' ? '' : selectedRun.note,
+      photos: [],
+    });
+    setFormError('');
+    setPage('create');
+  }
+
+  function openDateRuns(dateKey) {
+    const runsForDate = runsByDate[dateKey] ?? [];
+    if (!runsForDate.length) {
+      return;
+    }
+
+    setSelectedRunId(runsForDate[0].id);
+    setPage('details');
+  }
+
   async function refreshRuns() {
     try {
       setIsLoadingRuns(true);
@@ -263,6 +385,62 @@ export default function App() {
     }
   }
 
+  function closeGallery() {
+    setActivePhotoIndex(-1);
+    setIsPhotoZoomed(false);
+  }
+
+  function showNextPhoto() {
+    if (!selectedRun?.photos?.length) {
+      return;
+    }
+
+    setActivePhotoIndex((current) => (current + 1) % selectedRun.photos.length);
+    setIsPhotoZoomed(false);
+  }
+
+  function showPreviousPhoto() {
+    if (!selectedRun?.photos?.length) {
+      return;
+    }
+
+    setActivePhotoIndex((current) =>
+      current <= 0 ? selectedRun.photos.length - 1 : current - 1,
+    );
+    setIsPhotoZoomed(false);
+  }
+
+  async function handleDeletePhoto() {
+    const activePhoto = selectedRun?.photos?.[activePhotoIndex];
+
+    if (!selectedRun || !activePhoto) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete photo "${activePhoto.title}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setIsDeletingPhoto(true);
+      const updatedRun = await deletePhotoFromRun(selectedRun, activePhoto.id);
+      setRuns((current) => current.map((run) => (run.id === updatedRun.id ? updatedRun : run)));
+      if (!updatedRun.photos.length) {
+        closeGallery();
+      } else {
+        setActivePhotoIndex((current) => Math.min(current, updatedRun.photos.length - 1));
+      }
+      setSyncMessage(
+        isCloudEnabled() ? 'Photo deleted from shared storage.' : 'Photo deleted from this device.',
+      );
+    } catch {
+      setSyncMessage('Photo could not be deleted right now.');
+    } finally {
+      setIsDeletingPhoto(false);
+    }
+  }
+
   function handleFieldChange(event) {
     const { name, value } = event.target;
     setFormError('');
@@ -292,23 +470,31 @@ export default function App() {
 
     try {
       setIsSavingRun(true);
-      const createdRun = {
+      const runPayload = {
         title: newRun.title.trim(),
         date: newRun.date,
-        time: getCurrentTimeValue(),
+        time: editingRun?.time ?? getCurrentTimeValue(),
         distance: formatDistance(newRun.distance),
         duration: formatDuration(newRun.duration),
         pace,
         location: newRun.location.trim() || 'No location',
         note: newRun.note.trim() || 'No note',
-        createdAtMs: Date.now(),
-        photos: newRun.photos,
+        createdAtMs: editingRun?.createdAtMs ?? Date.now(),
+        photos: editingRun?.photos ?? [],
       };
 
-      const savedRun = await saveRun(createdRun);
-      setRuns((current) => [savedRun, ...current]);
+      const savedRun = editingRun
+        ? await updateRun(editingRun.id, runPayload, newRun.photos)
+        : await saveRun({ ...runPayload, photos: newRun.photos });
+
+      setRuns((current) =>
+        editingRun
+          ? current.map((run) => (run.id === savedRun.id ? savedRun : run))
+          : [savedRun, ...current],
+      );
       setSelectedRunId(savedRun.id);
-      setPage('home');
+      setPage(editingRun ? 'details' : 'home');
+      setEditingRunId('');
       setNewRun({
         title: '',
         date: '',
@@ -320,14 +506,24 @@ export default function App() {
       });
       setFormError('');
       setSyncMessage(
-        isCloudEnabled() ? 'Run saved and shared across devices.' : 'Run saved on this device only.',
+        editingRun
+          ? isCloudEnabled()
+            ? 'Run updated in shared storage.'
+            : 'Run updated on this device.'
+          : isCloudEnabled()
+            ? 'Run saved and shared across devices.'
+            : 'Run saved on this device only.',
       );
       event.target.reset();
     } catch {
       setFormError(
         isCloudEnabled()
-          ? 'Run could not be uploaded. Check the Firebase config and rules.'
-          : 'Photos could not be saved on this device.',
+          ? editingRun
+            ? 'Run could not be updated. Check the Firebase config and rules.'
+            : 'Run could not be uploaded. Check the Firebase config and rules.'
+          : editingRun
+            ? 'Run could not be updated on this device.'
+            : 'Photos could not be saved on this device.',
       );
     } finally {
       setIsSavingRun(false);
@@ -352,9 +548,14 @@ export default function App() {
                 <p className="topbar-label">Journal</p>
                 <h1>Run Journal</h1>
               </div>
-              <button className="icon-button" type="button" onClick={refreshRuns}>
-                {isLoadingRuns ? '...' : 'R'}
-              </button>
+              <div className="topbar-actions">
+                <button className="icon-button" type="button" onClick={() => setPage('calendar')}>
+                  C
+                </button>
+                <button className="icon-button" type="button" onClick={refreshRuns}>
+                  {isLoadingRuns ? '...' : 'R'}
+                </button>
+              </div>
             </header>
 
             {syncMessage ? <p className="sync-banner">{syncMessage}</p> : null}
@@ -414,7 +615,7 @@ export default function App() {
               )}
             </section>
 
-            <button className="fab" type="button" onClick={() => setPage('create')}>
+            <button className="fab" type="button" onClick={openCreateRun}>
               <span className="fab-plus">+</span>
               <span>New run</span>
             </button>
@@ -428,13 +629,13 @@ export default function App() {
                 {'<'}
               </button>
               <div className="topbar-copy">
-                <p className="topbar-label">Add run</p>
-                <h1>New run</h1>
+                <p className="topbar-label">{editingRun ? 'Edit run' : 'Add run'}</p>
+                <h1>{editingRun ? 'Edit run' : 'New run'}</h1>
               </div>
             </header>
 
             <section className="form-card">
-              <h2>Create a run with photos</h2>
+              <h2>{editingRun ? 'Update your run' : 'Create a run with photos'}</h2>
               <form className="run-form" onSubmit={handleAddRun}>
                 <input
                   className="run-input"
@@ -487,18 +688,125 @@ export default function App() {
                   onChange={handleFieldChange}
                 />
                 <label className="upload-button">
-                  Choose photos
-                  <input type="file" accept="image/*" multiple onChange={handlePhotoChange} required />
+                  {editingRun ? 'Add more photos' : 'Choose photos'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handlePhotoChange}
+                    required={!editingRun}
+                  />
                 </label>
                 <p className="photo-count">
-                  {newRun.photos.length ? `${newRun.photos.length} photo(s) selected` : 'No photos selected'}
+                  {editingRun
+                    ? newRun.photos.length
+                      ? `${newRun.photos.length} new photo(s) selected`
+                      : `${editingRun.photos.length} existing photo(s)`
+                    : newRun.photos.length
+                      ? `${newRun.photos.length} photo(s) selected`
+                      : 'No photos selected'}
                 </p>
                 <p className="photo-count">Creation time is added automatically when you submit.</p>
                 {formError ? <p className="form-error">{formError}</p> : null}
                 <button className="primary-button" type="submit" disabled={!isFormValid || isSavingRun}>
-                  {isSavingRun ? 'Saving...' : 'Add run'}
+                  {isSavingRun ? 'Saving...' : editingRun ? 'Save changes' : 'Add run'}
                 </button>
               </form>
+            </section>
+          </section>
+        ) : null}
+
+        {displayPage === 'calendar' ? (
+          <section className={`screen page-shell page-${transitionStage}`}>
+            <header className="topbar">
+              <button className="icon-button" type="button" onClick={() => setPage('home')}>
+                {'<'}
+              </button>
+              <div className="topbar-copy">
+                <p className="topbar-label">Calendar</p>
+                <h1>{formatMonthLabel(calendarMonth)}</h1>
+              </div>
+            </header>
+
+            <section className="calendar-card">
+              <div className="calendar-nav">
+                <button className="icon-button" type="button" onClick={() => setCalendarMonth((current) => shiftMonth(current, -1))}>
+                  {'<'}
+                </button>
+                <p>{formatMonthLabel(calendarMonth)}</p>
+                <button className="icon-button" type="button" onClick={() => setCalendarMonth((current) => shiftMonth(current, 1))}>
+                  {'>'}
+                </button>
+              </div>
+
+              <div className="calendar-weekdays">
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+                  <span key={day}>{day}</span>
+                ))}
+              </div>
+
+              <div className="calendar-grid">
+                {calendarDays.map((day, index) => {
+                  if (!day) {
+                    return <div className="calendar-cell calendar-cell-empty" key={`empty-${index}`} />;
+                  }
+
+                  const dateKey = formatCalendarKey(day);
+                  const runsForDate = runsByDate[dateKey] ?? [];
+                  const isToday = dateKey === formatCalendarKey(new Date());
+
+                  return (
+                    <button
+                      className={`calendar-cell ${runsForDate.length ? 'calendar-cell-has-runs' : ''} ${isToday ? 'calendar-cell-today' : ''}`}
+                      key={dateKey}
+                      type="button"
+                      onClick={() => openDateRuns(dateKey)}
+                    >
+                      <span>{day.getDate()}</span>
+                      {runsForDate.length ? <strong>{runsForDate.length}</strong> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="details-card">
+              <h3>Runs this month</h3>
+              {runs.filter((run) => {
+                const runDate = new Date(`${run.date}T00:00:00`);
+                return (
+                  runDate.getFullYear() === calendarMonth.getFullYear() &&
+                  runDate.getMonth() === calendarMonth.getMonth()
+                );
+              }).length ? (
+                <div className="calendar-run-list">
+                  {runs
+                    .filter((run) => {
+                      const runDate = new Date(`${run.date}T00:00:00`);
+                      return (
+                        runDate.getFullYear() === calendarMonth.getFullYear() &&
+                        runDate.getMonth() === calendarMonth.getMonth()
+                      );
+                    })
+                    .map((run) => (
+                      <button
+                        className="calendar-run-row"
+                        key={run.id}
+                        type="button"
+                        onClick={() => openRunDetails(run.id)}
+                      >
+                        <div>
+                          <p className="topbar-label">{formatRunDate(run.date, run.time)}</p>
+                          <h3>{run.title}</h3>
+                          <p>{run.distance} - {run.duration}</p>
+                        </div>
+                        <span className="session-count">{run.photos.length}</span>
+                      </button>
+                    ))}
+                </div>
+              ) : (
+                <p className="details-empty calendar-empty">No runs in this month.</p>
+              )}
             </section>
           </section>
         ) : null}
@@ -538,14 +846,19 @@ export default function App() {
             <section className="details-card">
               <div className="details-card-header">
                 <h3>Details</h3>
-                <button
-                  className="danger-button"
-                  type="button"
-                  onClick={handleDeleteRun}
-                  disabled={isDeletingRun}
-                >
-                  {isDeletingRun ? 'Deleting...' : 'Delete run'}
-                </button>
+                <div className="details-actions">
+                  <button className="secondary-button" type="button" onClick={openEditRun}>
+                    Edit run
+                  </button>
+                  <button
+                    className="danger-button"
+                    type="button"
+                    onClick={handleDeleteRun}
+                    disabled={isDeletingRun}
+                  >
+                    {isDeletingRun ? 'Deleting...' : 'Delete run'}
+                  </button>
+                </div>
               </div>
               <div className="details-grid">
                 <p>Created</p>
@@ -566,10 +879,15 @@ export default function App() {
               <h3>Photos</h3>
               {selectedRun.photos.length ? (
                 <div className="photo-grid">
-                  {selectedRun.photos.map((photo) => (
-                    <article className="photo-thumb" key={photo.id}>
+                  {selectedRun.photos.map((photo, index) => (
+                    <button
+                      className="photo-thumb"
+                      key={photo.id}
+                      type="button"
+                      onClick={() => setActivePhotoIndex(index)}
+                    >
                       <img src={photo.src} alt={photo.title} />
-                    </article>
+                    </button>
                   ))}
                 </div>
               ) : (
@@ -577,6 +895,51 @@ export default function App() {
               )}
             </section>
           </section>
+        ) : null}
+
+        {selectedRun && activePhotoIndex >= 0 ? (
+          <div className="gallery-overlay" role="dialog" aria-modal="true">
+            <button className="gallery-backdrop" type="button" onClick={closeGallery} aria-label="Close gallery" />
+            <div className="gallery-panel">
+              <div className="gallery-header">
+                <p>
+                  {activePhotoIndex + 1} / {selectedRun.photos.length}
+                </p>
+                <button className="icon-button gallery-close" type="button" onClick={closeGallery}>
+                  x
+                </button>
+              </div>
+              <img
+                className={`gallery-image ${isPhotoZoomed ? 'gallery-image-zoomed' : ''}`}
+                src={selectedRun.photos[activePhotoIndex]?.src}
+                alt={selectedRun.photos[activePhotoIndex]?.title ?? selectedRun.title}
+                onClick={() => setIsPhotoZoomed((current) => !current)}
+              />
+              <div className="gallery-controls">
+                <button
+                  className="secondary-button gallery-button"
+                  type="button"
+                  onClick={() => setIsPhotoZoomed((current) => !current)}
+                >
+                  {isPhotoZoomed ? 'Fit' : 'Zoom'}
+                </button>
+                <button className="secondary-button gallery-button" type="button" onClick={showPreviousPhoto}>
+                  Prev
+                </button>
+                <button className="secondary-button gallery-button" type="button" onClick={showNextPhoto}>
+                  Next
+                </button>
+                <button
+                  className="danger-button gallery-button"
+                  type="button"
+                  onClick={handleDeletePhoto}
+                  disabled={isDeletingPhoto}
+                >
+                  {isDeletingPhoto ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
         ) : null}
       </main>
     </>
