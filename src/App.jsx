@@ -7,9 +7,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  ExternalLink,
   LockKeyhole,
-  MapPin,
   MessageCircle,
   MoreVertical,
   Pencil,
@@ -38,6 +36,7 @@ const ACCESS_STORAGE_KEY = 'runmate:access';
 const ACCESS_USER_STORAGE_KEY = 'runmate:user';
 const ACCESS_USERS = ['Mariame', 'Anass'];
 const RUNS_PAGE_SIZE = 6;
+const CREATE_STEPS = ['Details', 'Photos', 'Route'];
 const MIN_RUN_DATE = '2025-01-01';
 const MAX_TITLE_LENGTH = 60;
 const MAX_LOCATION_LENGTH = 80;
@@ -112,6 +111,9 @@ function getRouteFromInputs(startLat, startLng, endLat, endLng) {
   const parsedStartLng = parseCoordinate(startLng);
   const parsedEndLat = parseCoordinate(endLat);
   const parsedEndLng = parseCoordinate(endLng);
+  const start =
+    parsedStartLat != null && parsedStartLng != null ? [parsedStartLat, parsedStartLng] : null;
+  const end = parsedEndLat != null && parsedEndLng != null ? [parsedEndLat, parsedEndLng] : null;
 
   const hasAnyStart = parsedStartLat != null || parsedStartLng != null;
   const hasAnyEnd = parsedEndLat != null || parsedEndLng != null;
@@ -128,8 +130,8 @@ function getRouteFromInputs(startLat, startLng, endLat, endLng) {
   ) {
     return {
       status: 'partial',
-      start: null,
-      end: null,
+      start,
+      end,
       distanceKm: null,
     };
   }
@@ -151,9 +153,6 @@ function getRouteFromInputs(startLat, startLng, endLat, endLng) {
       distanceKm: null,
     };
   }
-
-  const start = [parsedStartLat, parsedStartLng];
-  const end = [parsedEndLat, parsedEndLng];
 
   return {
     status: 'ready',
@@ -236,6 +235,18 @@ function buildCalendarDays(monthDate) {
   }
 
   return days;
+}
+
+function getUserTone(name) {
+  if (name === 'Mariame') {
+    return 'tone-mariame';
+  }
+
+  if (name === 'Anass') {
+    return 'tone-anass';
+  }
+
+  return 'tone-shared';
 }
 
 function parseDistanceKm(distanceValue) {
@@ -791,6 +802,8 @@ export default function App() {
   const [syncMessage, setSyncMessage] = useState('');
   const [touchedFields, setTouchedFields] = useState({});
   const [isDetailsMenuOpen, setIsDetailsMenuOpen] = useState(false);
+  const [createStep, setCreateStep] = useState(0);
+  const [isGalleryMenuOpen, setIsGalleryMenuOpen] = useState(false);
   const galleryTouchRef = useRef({ x: 0, y: 0 });
   const galleryTapRef = useRef({ time: 0 });
   const commentPressTimerRef = useRef(null);
@@ -830,12 +843,43 @@ export default function App() {
     [editingRun, newRun],
   );
   const isFormValid = Object.keys(formErrors).length === 0;
-  const selectedRunMap = useLocationCoordinates(selectedRun?.location);
   const formRoute = useMemo(
     () => getRouteFromInputs(newRun.startLat, newRun.startLng, newRun.endLat, newRun.endLng),
     [newRun.endLat, newRun.endLng, newRun.startLat, newRun.startLng],
   );
-  const formMapLocation = useLocationCoordinates(newRun.location);
+  const featuredRun = runs[0] ?? null;
+  const journalRuns = useMemo(
+    () => (featuredRun ? paginatedRuns.slice(1) : paginatedRuns),
+    [featuredRun, paginatedRuns],
+  );
+  const memoryPhotos = useMemo(
+    () =>
+      runs
+        .flatMap((run) =>
+          run.photos.slice(0, 2).map((photo) => ({
+            id: photo.id,
+            src: photo.src,
+            title: photo.title,
+            runTitle: run.title,
+          })),
+        )
+        .slice(0, 6),
+    [runs],
+  );
+  const recentComments = useMemo(
+    () =>
+      runs
+        .flatMap((run) =>
+          (run.comments ?? []).map((comment) => ({
+            id: comment.id,
+            author: comment.author,
+            text: comment.text,
+            runTitle: run.title,
+          })),
+        )
+        .slice(0, 4),
+    [runs],
+  );
   const stats = useMemo(() => {
     const now = new Date();
     const weekStart = new Date(now);
@@ -970,6 +1014,10 @@ export default function App() {
   }, [displayPage, selectedRunId]);
 
   useEffect(() => {
+    setIsGalleryMenuOpen(false);
+  }, [activePhotoIndex]);
+
+  useEffect(() => {
     if (page === displayPage) {
       setTransitionStage('entered');
       return undefined;
@@ -1004,6 +1052,7 @@ export default function App() {
 
   function openCreateRun() {
     setEditingRunId('');
+    setCreateStep(0);
     setNewRun({
       title: '',
       date: getTodayDateValue(),
@@ -1043,7 +1092,49 @@ export default function App() {
     });
     setFormError('');
     setTouchedFields({});
+    setCreateStep(0);
     navigateTo('create', 'forward');
+  }
+
+  function handleCreateStepChange(nextStep) {
+    setCreateStep(nextStep);
+    setFormError('');
+  }
+
+  function handleContinueCreate() {
+    if (createStep === 0) {
+      const detailKeys = ['title', 'distance', 'duration', 'date', 'location', 'note'];
+      setTouchedFields((current) => ({
+        ...current,
+        title: true,
+        distance: true,
+        duration: true,
+        date: true,
+        location: true,
+        note: true,
+      }));
+
+      const detailErrorKey = detailKeys.find((key) => formErrors[key]);
+      if (detailErrorKey) {
+        setFormError(formErrors[detailErrorKey]);
+        return;
+      }
+    }
+
+    if (createStep === 1) {
+      setTouchedFields((current) => ({
+        ...current,
+        photos: true,
+      }));
+
+      if (formErrors.photos) {
+        setFormError(formErrors.photos);
+        return;
+      }
+    }
+
+    setFormError('');
+    setCreateStep((current) => Math.min(current + 1, CREATE_STEPS.length - 1));
   }
 
   function openDateRuns(dateKey) {
@@ -1392,21 +1483,6 @@ export default function App() {
     }));
   }
 
-  function handleClearRoute() {
-    setNewRun((current) => ({
-      ...current,
-      startLat: '',
-      startLng: '',
-      endLat: '',
-      endLng: '',
-    }));
-    setTouchedFields((current) => ({
-      ...current,
-      route: false,
-    }));
-    setFormError('');
-  }
-
   async function handleAddRun(event) {
     event.preventDefault();
 
@@ -1455,6 +1531,7 @@ export default function App() {
         pace: speed,
         location: newRun.location.trim() || 'No location',
         note: newRun.note.trim() || 'No note',
+        owner: editingRun?.owner ?? accessUser ?? 'Shared',
         route: routePayload,
         createdAtMs: editingRun?.createdAtMs ?? Date.now(),
         photos: editingRun?.photos ?? [],
@@ -1490,6 +1567,7 @@ export default function App() {
       });
       setFormError('');
       setTouchedFields({});
+      setCreateStep(0);
       setSyncMessage(
         editingRun
           ? isCloudEnabled()
@@ -1665,6 +1743,12 @@ export default function App() {
                   Build a soft little archive for every run you keep.
                   {accessUser ? ` Logged in as ${accessUser}.` : ''}
                 </p>
+                {accessUser ? (
+                  <div className="identity-pill">
+                    <span className={`avatar-badge ${getUserTone(accessUser)}`}>{accessUser.slice(0, 1)}</span>
+                    <strong>{accessUser}</strong>
+                  </div>
+                ) : null}
               </div>
               <div className="topbar-actions">
                 <button className="icon-button" type="button" onClick={handleReminderToggle}>
@@ -1694,7 +1778,43 @@ export default function App() {
               ))}
             </section>
 
-            <section className="run-list">
+            {featuredRun ? (
+              <section className="editorial-section">
+                <div className="section-header">
+                  <div>
+                    <p className="topbar-label">Latest run</p>
+                    <h2 className="section-title">A fresh memory</h2>
+                  </div>
+                </div>
+                <button
+                  className="run-card run-card-featured"
+                  type="button"
+                  onClick={() => openRunDetails(featuredRun.id)}
+                  style={
+                    featuredRun.photos[0]?.src
+                      ? {
+                          backgroundImage: `linear-gradient(180deg, rgba(4, 16, 26, 0.08), rgba(4, 16, 26, 0.84)), url(${featuredRun.photos[0].src})`,
+                          backgroundPosition: 'center 46%',
+                        }
+                      : undefined
+                  }
+                >
+                  <div className="run-card-chips">
+                    <span className="run-chip run-chip-animated">{featuredRun.distance}</span>
+                    <span className="run-chip run-chip-animated">{featuredRun.duration}</span>
+                    <span className="run-chip run-chip-animated">{getRunSpeedDisplay(featuredRun)}</span>
+                  </div>
+
+                  <div className="run-card-body">
+                    <span className={`card-owner-badge ${getUserTone(featuredRun.owner)}`}>{featuredRun.owner || 'Shared'}</span>
+                    <h2>{featuredRun.title}</h2>
+                    <p>{featuredRun.note === 'No note' ? `${featuredRun.photos.length} photos waiting inside.` : featuredRun.note}</p>
+                  </div>
+                </button>
+              </section>
+            ) : null}
+
+            <section className="editorial-section">
               {isLoadingRuns ? (
                 <section className="empty-state">
                   <p className="topbar-label">Loading</p>
@@ -1702,7 +1822,15 @@ export default function App() {
                   <p>Your journal is loading.</p>
                 </section>
               ) : runs.length ? (
-                paginatedRuns.map((run) => {
+                <>
+                  <div className="section-header">
+                    <div>
+                      <p className="topbar-label">This week</p>
+                      <h2 className="section-title">Journal entries</h2>
+                    </div>
+                  </div>
+                  <div className="run-list">
+                {journalRuns.map((run) => {
                   const coverPhoto = run.photos[0]?.src;
 
                   return (
@@ -1715,16 +1843,18 @@ export default function App() {
                         coverPhoto
                           ? {
                               backgroundImage: `linear-gradient(180deg, rgba(4, 16, 26, 0.12), rgba(4, 16, 26, 0.78)), url(${coverPhoto})`,
+                              backgroundPosition: 'center 44%',
                             }
                           : undefined
                       }
                     >
                       <div className="run-card-chips">
-                        <span className="run-chip">{run.distance}</span>
-                        <span className="run-chip">{run.duration}</span>
+                        <span className="run-chip run-chip-animated">{run.distance}</span>
+                        <span className="run-chip run-chip-animated">{run.duration}</span>
                       </div>
 
                       <div className="run-card-body">
+                        <span className={`card-owner-badge ${getUserTone(run.owner)}`}>{run.owner || 'Shared'}</span>
                         <h2>{run.title}</h2>
                         <p>{formatRunDate(run.date, run.time)} - {run.time}</p>
                         {run.pendingSync ? <span className="pending-pill">Pending sync</span> : null}
@@ -1732,21 +1862,67 @@ export default function App() {
                     </button>
                   );
                 })
+                  }</div>
+                </>
               ) : (
                 <section className="empty-state">
                   <p className="topbar-label">No runs yet</p>
                   <h2>Add your first run</h2>
-                  <p>Create a run with photos from the button below.</p>
+                  <p>Start with one beautiful memory, then let the journal grow naturally.</p>
+                  <button className="secondary-button empty-state-action" type="button" onClick={openCreateRun}>
+                    Create first run
+                  </button>
                 </section>
               )}
             </section>
+
+            {memoryPhotos.length ? (
+              <section className="editorial-section">
+                <div className="section-header">
+                  <div>
+                    <p className="topbar-label">Memories</p>
+                    <h2 className="section-title">Recent photo moments</h2>
+                  </div>
+                </div>
+                <div className="memory-strip">
+                  {memoryPhotos.map((photo) => (
+                    <article className="memory-card" key={photo.id}>
+                      <img src={photo.src} alt={photo.title} loading="lazy" />
+                      <span>{photo.runTitle}</span>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {recentComments.length ? (
+              <section className="editorial-section">
+                <div className="section-header">
+                  <div>
+                    <p className="topbar-label">Comments</p>
+                    <h2 className="section-title">Little notes between runs</h2>
+                  </div>
+                </div>
+                <div className="comment-preview-list">
+                  {recentComments.map((comment) => (
+                    <article className={`comment-preview-card ${getUserTone(comment.author)}`} key={comment.id}>
+                      <div className="comment-preview-head">
+                        <span className={`avatar-badge ${getUserTone(comment.author)}`}>{comment.author?.slice(0, 1) || 'S'}</span>
+                        <strong>{comment.author}</strong>
+                      </div>
+                      <p>{comment.text}</p>
+                      <span>{comment.runTitle}</span>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             {runs.length > visibleRunCount ? (
               <button className="secondary-button load-more-button" type="button" onClick={() => setVisibleRunCount((current) => current + RUNS_PAGE_SIZE)}>
                 Load more
               </button>
             ) : null}
-
             <button className="fab fab-icon-only" type="button" onClick={openCreateRun} aria-label="Add run">
               <Plus size={24} strokeWidth={2.6} />
             </button>
@@ -1772,220 +1948,219 @@ export default function App() {
               </div>
             </header>
 
-            <section className="form-card">
+            <section className="form-card premium-form-card">
+              <div className="stepper-strip">
+                {CREATE_STEPS.map((step, index) => (
+                  <button
+                    className={`step-pill ${index === createStep ? 'step-pill-active' : ''} ${index < createStep ? 'step-pill-complete' : ''}`}
+                    key={step}
+                    type="button"
+                    onClick={() => {
+                      if (index <= createStep) {
+                        handleCreateStepChange(index);
+                      }
+                    }}
+                  >
+                    <span>{index + 1}</span>
+                    <strong>{step}</strong>
+                  </button>
+                ))}
+              </div>
               <h2>{editingRun ? 'Update your run' : 'Create a run with photos'}</h2>
               <form className="run-form" onSubmit={handleAddRun}>
                 <div className="form-meta-row">
                   <span className="form-meta-pill">Date {newRun.date || getTodayDateValue()}</span>
                   <span className="form-meta-pill">Time {editingRun?.time ?? getCurrentTimeValue()}</span>
                 </div>
-                <div className="field-stack">
-                  <input
-                    className={`run-input ${touchedFields.title && formErrors.title ? 'run-input-invalid' : ''}`}
-                    name="title"
-                    placeholder="Run title"
-                    value={newRun.title}
-                    onChange={handleFieldChange}
-                    maxLength={MAX_TITLE_LENGTH}
-                    required
-                  />
-                  {touchedFields.title && formErrors.title ? (
-                    <p className="field-error">{formErrors.title}</p>
-                  ) : null}
-                </div>
-                <div className="run-form-grid">
-                  <div className="field-stack">
-                    <input
-                      className={`run-input ${touchedFields.distance && formErrors.distance ? 'run-input-invalid' : ''}`}
-                      name="distance"
-                      placeholder="Distance (km)"
-                      inputMode="decimal"
-                      type="number"
-                      min="0.1"
-                      max={MAX_DISTANCE_KM}
-                      step="0.1"
-                      value={newRun.distance}
-                      onChange={handleFieldChange}
-                      required
-                    />
-                    {touchedFields.distance && formErrors.distance ? (
-                      <p className="field-error">{formErrors.distance}</p>
-                    ) : null}
-                  </div>
-                  <div className="field-stack">
-                    <input
-                      className={`run-input ${touchedFields.duration && formErrors.duration ? 'run-input-invalid' : ''}`}
-                      name="duration"
-                      placeholder="Time (min)"
-                      inputMode="decimal"
-                      type="number"
-                      min="1"
-                      max={MAX_DURATION_MINUTES}
-                      step="1"
-                      value={newRun.duration}
-                      onChange={handleFieldChange}
-                      required
-                    />
-                    {touchedFields.duration && formErrors.duration ? (
-                      <p className="field-error">{formErrors.duration}</p>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="field-stack">
-                  <input
-                    className={`run-input ${touchedFields.date && formErrors.date ? 'run-input-invalid' : ''}`}
-                    name="date"
-                    type="date"
-                    min={MIN_RUN_DATE}
-                    max={getTodayDateValue()}
-                    value={newRun.date}
-                    onChange={handleFieldChange}
-                    required
-                  />
-                  {touchedFields.date && formErrors.date ? (
-                    <p className="field-error">{formErrors.date}</p>
-                  ) : null}
-                </div>
-                <div className="field-stack">
-                  <input
-                    className={`run-input ${touchedFields.location && formErrors.location ? 'run-input-invalid' : ''}`}
-                    name="location"
-                    placeholder="Location"
-                    value={newRun.location}
-                    onChange={handleFieldChange}
-                    maxLength={MAX_LOCATION_LENGTH}
-                  />
-                  {touchedFields.location && formErrors.location ? (
-                    <p className="field-error">{formErrors.location}</p>
-                  ) : null}
-                </div>
-                <div className="field-stack">
-                  <textarea
-                    className={`run-input run-textarea ${touchedFields.note && formErrors.note ? 'run-input-invalid' : ''}`}
-                    name="note"
-                    placeholder="Notes about this run"
-                    value={newRun.note}
-                    onChange={handleFieldChange}
-                    maxLength={MAX_NOTE_LENGTH}
-                  />
-                  {touchedFields.note && formErrors.note ? (
-                    <p className="field-error">{formErrors.note}</p>
-                  ) : null}
-                </div>
-                <section className="route-fields-card">
-                  <div className="route-fields-header">
-                    <p className="label">Route points</p>
-                    <div className="route-fields-actions">
-                      <span className="route-distance-pill">
-                        {formRoute?.status === 'ready'
-                          ? formatRouteDistance(formRoute.distanceKm)
-                          : 'Optional'}
-                      </span>
-                      {(newRun.startLat || newRun.startLng || newRun.endLat || newRun.endLng) ? (
-                        <button className="comment-reply-button" type="button" onClick={handleClearRoute}>
-                          Clear route
-                        </button>
+                {createStep === 0 ? (
+                  <section className="step-section">
+                    <div className={`floating-field ${newRun.title ? 'floating-field-filled' : ''}`}>
+                      <input
+                        className={`run-input floating-input ${touchedFields.title && formErrors.title ? 'run-input-invalid' : ''}`}
+                        name="title"
+                        placeholder=" "
+                        value={newRun.title}
+                        onChange={handleFieldChange}
+                        maxLength={MAX_TITLE_LENGTH}
+                        required
+                      />
+                      <label className="floating-label">Run title</label>
+                      {touchedFields.title && formErrors.title ? (
+                        <p className="field-error">{formErrors.title}</p>
                       ) : null}
                     </div>
-                  </div>
-                  <div className="route-grid">
-                    <input
-                      className="run-input"
-                      name="startLat"
-                      placeholder="Start lat"
-                      inputMode="decimal"
-                      value={newRun.startLat}
-                      onChange={handleFieldChange}
-                    />
-                    <input
-                      className="run-input"
-                      name="startLng"
-                      placeholder="Start lng"
-                      inputMode="decimal"
-                      value={newRun.startLng}
-                      onChange={handleFieldChange}
-                    />
-                    <input
-                      className="run-input"
-                      name="endLat"
-                      placeholder="End lat"
-                      inputMode="decimal"
-                      value={newRun.endLat}
-                      onChange={handleFieldChange}
-                    />
-                    <input
-                      className="run-input"
-                      name="endLng"
-                      placeholder="End lng"
-                      inputMode="decimal"
-                      value={newRun.endLng}
-                      onChange={handleFieldChange}
-                    />
-                  </div>
-                  {formErrors.route ? <p className="field-error">{formErrors.route}</p> : null}
-                </section>
-                <label className="upload-button">
-                  {editingRun ? 'Add more photos' : 'Choose photos'}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handlePhotoChange}
-                    required={!editingRun}
-                  />
-                </label>
-                {touchedFields.photos && formErrors.photos ? (
-                  <p className="field-error">{formErrors.photos}</p>
-                ) : null}
-                {(photoPreviews.length || editingRun?.photos.length) ? (
-                  <section className="photo-preview-panel">
-                    <div className="photo-preview-header">
-                      <p className="label">Photos preview</p>
-                      <span className="preview-badge">
-                        {photoPreviews.length || editingRun?.photos.length || 0}
-                      </span>
+                    <div className="run-form-grid">
+                      <div className={`floating-field ${newRun.distance ? 'floating-field-filled' : ''}`}>
+                        <input
+                          className={`run-input floating-input ${touchedFields.distance && formErrors.distance ? 'run-input-invalid' : ''}`}
+                          name="distance"
+                          placeholder=" "
+                          inputMode="decimal"
+                          type="number"
+                          min="0.1"
+                          max={MAX_DISTANCE_KM}
+                          step="0.1"
+                          value={newRun.distance}
+                          onChange={handleFieldChange}
+                          required
+                        />
+                        <label className="floating-label">Distance (km)</label>
+                        {touchedFields.distance && formErrors.distance ? (
+                          <p className="field-error">{formErrors.distance}</p>
+                        ) : null}
+                      </div>
+                      <div className={`floating-field ${newRun.duration ? 'floating-field-filled' : ''}`}>
+                        <input
+                          className={`run-input floating-input ${touchedFields.duration && formErrors.duration ? 'run-input-invalid' : ''}`}
+                          name="duration"
+                          placeholder=" "
+                          inputMode="decimal"
+                          type="number"
+                          min="1"
+                          max={MAX_DURATION_MINUTES}
+                          step="1"
+                          value={newRun.duration}
+                          onChange={handleFieldChange}
+                          required
+                        />
+                        <label className="floating-label">Time (min)</label>
+                        {touchedFields.duration && formErrors.duration ? (
+                          <p className="field-error">{formErrors.duration}</p>
+                        ) : null}
+                      </div>
                     </div>
-                    {photoPreviews.length ? (
-                      <div className="photo-preview-grid">
-                        {photoPreviews.map((preview) => (
-                          <article className="photo-preview-card" key={preview.id}>
-                            <img src={preview.url} alt={preview.name} loading="lazy" />
-                          </article>
-                        ))}
-                      </div>
-                    ) : editingRun?.photos.length ? (
-                      <div className="photo-preview-grid">
-                        {editingRun.photos.slice(0, 6).map((photo) => (
-                          <article className="photo-preview-card" key={photo.id}>
-                            <img src={photo.src} alt={photo.title} loading="lazy" />
-                          </article>
-                        ))}
-                      </div>
+                    <div className={`floating-field ${newRun.date ? 'floating-field-filled' : ''}`}>
+                      <input
+                        className={`run-input floating-input ${touchedFields.date && formErrors.date ? 'run-input-invalid' : ''}`}
+                        name="date"
+                        placeholder=" "
+                        type="date"
+                        min={MIN_RUN_DATE}
+                        max={getTodayDateValue()}
+                        value={newRun.date}
+                        onChange={handleFieldChange}
+                        required
+                      />
+                      <label className="floating-label">Date</label>
+                      {touchedFields.date && formErrors.date ? (
+                        <p className="field-error">{formErrors.date}</p>
+                      ) : null}
+                    </div>
+                    <div className={`floating-field ${newRun.location ? 'floating-field-filled' : ''}`}>
+                      <input
+                        className={`run-input floating-input ${touchedFields.location && formErrors.location ? 'run-input-invalid' : ''}`}
+                        name="location"
+                        placeholder=" "
+                        value={newRun.location}
+                        onChange={handleFieldChange}
+                        maxLength={MAX_LOCATION_LENGTH}
+                      />
+                      <label className="floating-label">Location</label>
+                      {touchedFields.location && formErrors.location ? (
+                        <p className="field-error">{formErrors.location}</p>
+                      ) : null}
+                    </div>
+                    <div className={`floating-field floating-field-textarea ${newRun.note ? 'floating-field-filled' : ''}`}>
+                      <textarea
+                        className={`run-input run-textarea floating-input ${touchedFields.note && formErrors.note ? 'run-input-invalid' : ''}`}
+                        name="note"
+                        placeholder=" "
+                        value={newRun.note}
+                        onChange={handleFieldChange}
+                        maxLength={MAX_NOTE_LENGTH}
+                      />
+                      <label className="floating-label">Notes about this run</label>
+                      {touchedFields.note && formErrors.note ? (
+                        <p className="field-error">{formErrors.note}</p>
+                      ) : null}
+                    </div>
+                  </section>
+                ) : null}
+                {createStep === 1 ? (
+                  <section className="step-section">
+                    <label className="upload-button upload-button-large">
+                      {editingRun ? 'Add more photos' : 'Choose photos'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handlePhotoChange}
+                        required={!editingRun}
+                      />
+                    </label>
+                    {touchedFields.photos && formErrors.photos ? (
+                      <p className="field-error">{formErrors.photos}</p>
+                    ) : null}
+                    {(photoPreviews.length || editingRun?.photos.length) ? (
+                      <section className="photo-preview-panel">
+                        <div className="photo-preview-header">
+                          <p className="label">Photos preview</p>
+                          <span className="preview-badge">
+                            {photoPreviews.length || editingRun?.photos.length || 0}
+                          </span>
+                        </div>
+                        {photoPreviews.length ? (
+                          <div className="photo-preview-grid">
+                            {photoPreviews.map((preview) => (
+                              <article className="photo-preview-card" key={preview.id}>
+                                <img src={preview.url} alt={preview.name} loading="lazy" />
+                              </article>
+                            ))}
+                          </div>
+                        ) : editingRun?.photos.length ? (
+                          <div className="photo-preview-grid">
+                            {editingRun.photos.slice(0, 6).map((photo) => (
+                              <article className="photo-preview-card" key={photo.id}>
+                                <img src={photo.src} alt={photo.title} loading="lazy" />
+                              </article>
+                            ))}
+                          </div>
+                        ) : null}
+                      </section>
                     ) : null}
                   </section>
                 ) : null}
-                <section className="live-map-panel">
-                  <div className="photo-preview-header">
-                    <p className="label">Live map preview</p>
-                    <span className="preview-badge preview-badge-soft">
-                      {formRoute?.status === 'ready' || formRoute?.status === 'partial' ? 'Route' : 'Pin'}
-                    </span>
-                  </div>
-                  <RunLocationMap
-                    locationName={newRun.location.trim() || 'Route preview'}
-                    coordinates={formMapLocation.coordinates}
-                    route={formRoute?.status === 'ready' || formRoute?.status === 'partial' ? formRoute : null}
-                    editable
-                    onRouteChange={handleRouteChange}
-                  />
-                  {newRun.location.trim() && formMapLocation.status === 'loading' ? (
-                    <p className="details-empty map-status">Preview is finding this location...</p>
-                  ) : null}
-                </section>
+                {createStep === 2 ? (
+                  <section className="step-section">
+                    <article className="route-step-card">
+                      <p className="topbar-label">Route</p>
+                      <h3>Finish this memory gently</h3>
+                      <p className="route-step-note">
+                        Route tools are intentionally hidden right now, but the route code is still saved for future updates.
+                      </p>
+                      <div className="route-summary-grid">
+                        <div>
+                          <span>Location</span>
+                          <strong>{newRun.location.trim() || 'No location yet'}</strong>
+                        </div>
+                        <div>
+                          <span>Date</span>
+                          <strong>{newRun.date || getTodayDateValue()}</strong>
+                        </div>
+                      </div>
+                    </article>
+                  </section>
+                ) : null}
                 {formError ? <p className="form-error">{formError}</p> : null}
-                <button className="primary-button" type="submit" disabled={!isFormValid || isSavingRun}>
-                  {isSavingRun ? 'Saving...' : editingRun ? 'Save changes' : 'Add run'}
-                </button>
+                <div className="form-action-bar">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => handleCreateStepChange(Math.max(createStep - 1, 0))}
+                    disabled={createStep === 0}
+                  >
+                    Back
+                  </button>
+                  {createStep < CREATE_STEPS.length - 1 ? (
+                    <button className="primary-button" type="button" onClick={handleContinueCreate}>
+                      Continue
+                    </button>
+                  ) : (
+                    <button className="primary-button" type="submit" disabled={!isFormValid || isSavingRun}>
+                      {isSavingRun ? 'Saving...' : editingRun ? 'Save changes' : 'Add run'}
+                    </button>
+                  )}
+                </div>
               </form>
             </section>
           </section>
@@ -2191,12 +2366,6 @@ export default function App() {
                 <strong>{getRunSpeedDisplay(selectedRun)}</strong>
                 <p>Location</p>
                 <strong>{selectedRun.location}</strong>
-                {selectedRun.route?.distanceKm != null ? (
-                  <>
-                    <p>Route</p>
-                    <strong>{formatRouteDistance(selectedRun.route.distanceKm)}</strong>
-                  </>
-                ) : null}
               </div>
               <p className="details-note">{selectedRun.note}</p>
             </section>
@@ -2218,50 +2387,6 @@ export default function App() {
                 </div>
               ) : (
                 <p className="details-empty">No photos for this run.</p>
-              )}
-            </section>
-
-            <section className="details-card">
-              <div className="details-card-header">
-                <h3>Map</h3>
-                <div className="details-actions">
-                  <MapPin size={16} strokeWidth={2.2} />
-                </div>
-              </div>
-              {(selectedRun.location && selectedRun.location !== 'No location') || selectedRun.route ? (
-                <div className="map-block">
-                  <RunLocationMap
-                    locationName={selectedRun.location === 'No location' ? 'Route preview' : selectedRun.location}
-                    coordinates={selectedRunMap.coordinates}
-                    route={selectedRun.route}
-                  />
-                  <div className="map-footer">
-                    <p className="details-note">
-                      {selectedRun.route?.distanceKm != null
-                        ? `Route distance ${formatRouteDistance(selectedRun.route.distanceKm)}`
-                        : selectedRun.location}
-                    </p>
-                    <a
-                      className="secondary-button map-link-button"
-                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                        selectedRun.location === 'No location' ? `${selectedRun.route?.start?.join(',')} ${selectedRun.route?.end?.join(',')}` : selectedRun.location,
-                      )}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <ExternalLink size={16} strokeWidth={2.2} />
-                      <span>Open in Maps</span>
-                    </a>
-                  </div>
-                  {selectedRunMap.status === 'loading' ? (
-                    <p className="details-empty map-status">Finding the exact spot...</p>
-                  ) : null}
-                  {selectedRunMap.status === 'error' ? (
-                    <p className="details-empty map-status">The map could not find this location yet.</p>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="details-empty map-empty">Add a location to show a simple map pin.</p>
               )}
             </section>
 
@@ -2300,8 +2425,12 @@ export default function App() {
                       onPointerLeave={stopCommentLongPress}
                       onPointerCancel={stopCommentLongPress}
                     >
+                      <div className={`comment-surface ${getUserTone(comment.author)} ${comment.author === accessUser ? 'comment-surface-owned' : ''}`}>
                       <div className="comment-head">
-                        <strong>{comment.author}</strong>
+                        <div className="comment-author">
+                          <span className={`avatar-badge ${getUserTone(comment.author)}`}>{comment.author?.slice(0, 1) || 'S'}</span>
+                          <strong>{comment.author}</strong>
+                        </div>
                         <button
                           className="comment-reply-button"
                           type="button"
@@ -2346,7 +2475,7 @@ export default function App() {
                         <div className="reply-list">
                           {comment.replies.map((reply) => (
                             <article
-                              className="reply-item"
+                              className={`reply-item ${getUserTone(reply.author)}`}
                               key={reply.id}
                               onPointerDown={() =>
                                 startCommentLongPress(
@@ -2359,7 +2488,10 @@ export default function App() {
                               onPointerLeave={stopCommentLongPress}
                               onPointerCancel={stopCommentLongPress}
                             >
-                              <strong>{reply.author}</strong>
+                              <div className="comment-author">
+                                <span className={`avatar-badge ${getUserTone(reply.author)}`}>{reply.author?.slice(0, 1) || 'S'}</span>
+                                <strong>{reply.author}</strong>
+                              </div>
                               <p>{reply.text}</p>
                               {commentActionTarget?.type === 'reply' &&
                               commentActionTarget.commentId === comment.id &&
@@ -2420,6 +2552,7 @@ export default function App() {
                           </div>
                         </form>
                       ) : null}
+                      </div>
                     </article>
                   ))}
                 </div>
@@ -2441,15 +2574,33 @@ export default function App() {
                   </p>
                 </div>
                 <div className="gallery-header-actions">
-                  <button
-                    className="icon-button gallery-close"
-                    type="button"
-                    onClick={handleDeletePhoto}
-                    aria-label="Delete photo"
-                    disabled={isDeletingPhoto}
-                  >
-                    <Trash2 size={18} strokeWidth={2.3} />
-                  </button>
+                  <div className="hero-menu-shell">
+                    <button
+                      className="icon-button gallery-close"
+                      type="button"
+                      onClick={() => setIsGalleryMenuOpen((current) => !current)}
+                      aria-label="Open photo menu"
+                      aria-expanded={isGalleryMenuOpen}
+                    >
+                      <MoreVertical size={18} strokeWidth={2.3} />
+                    </button>
+                    {isGalleryMenuOpen ? (
+                      <div className="hero-menu gallery-menu">
+                        <button
+                          className="hero-menu-item hero-menu-item-danger"
+                          type="button"
+                          onClick={() => {
+                            setIsGalleryMenuOpen(false);
+                            handleDeletePhoto();
+                          }}
+                          disabled={isDeletingPhoto}
+                        >
+                          <Trash2 size={16} strokeWidth={2.2} />
+                          <span>{isDeletingPhoto ? 'Deleting...' : 'Delete photo'}</span>
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                   <button className="icon-button gallery-close" type="button" onClick={closeGallery} aria-label="Close gallery">
                     <X size={18} strokeWidth={2.5} />
                   </button>
