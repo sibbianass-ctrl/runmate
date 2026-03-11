@@ -46,6 +46,11 @@ const MAX_DURATION_MINUTES = 1440;
 const MAX_PHOTOS = 12;
 const MAX_PHOTO_SIZE_BYTES = 15 * 1024 * 1024;
 const DEFAULT_MAP_CENTER = [34.0209, -6.8416];
+const DEFAULT_WEATHER_LOCATION = {
+  name: 'Current area',
+  latitude: DEFAULT_MAP_CENTER[0],
+  longitude: DEFAULT_MAP_CENTER[1],
+};
 const mapPinIcon = L.divIcon({
   className: 'map-pin-icon',
   html: '<span class="map-pin-dot"></span>',
@@ -247,6 +252,48 @@ function getUserTone(name) {
   }
 
   return 'tone-shared';
+}
+
+function getWeatherRecommendation({ temperature, apparentTemperature, precipitation, windSpeed }) {
+  const feltTemperature = apparentTemperature ?? temperature;
+
+  if (feltTemperature == null) {
+    return {
+      tone: 'weather-card-neutral',
+      title: 'Weather is loading',
+      message: 'Runmate is still checking the conditions for today.',
+    };
+  }
+
+  if (feltTemperature >= 31) {
+    return {
+      tone: 'weather-card-hot',
+      title: 'Too hot to push hard',
+      message: 'Try an easy run early or later in the evening and bring water.',
+    };
+  }
+
+  if (feltTemperature <= 5) {
+    return {
+      tone: 'weather-card-cold',
+      title: 'Too cold for a light outfit',
+      message: 'Layer up well before going out today.',
+    };
+  }
+
+  if ((precipitation ?? 0) >= 4 || (windSpeed ?? 0) >= 30) {
+    return {
+      tone: 'weather-card-alert',
+      title: 'Conditions feel rough today',
+      message: 'Rain or strong wind may make this run harder than usual.',
+    };
+  }
+
+  return {
+    tone: 'weather-card-good',
+    title: 'Beautiful weather to run',
+    message: 'Conditions look comfortable for a smooth run today.',
+  };
 }
 
 function parseDistanceKm(distanceValue) {
@@ -612,6 +659,78 @@ function deleteCommentThread(comments, target) {
   });
 }
 
+function findCommentThreadItem(comments, target) {
+  if (target?.type === 'comment') {
+    return comments.find((comment) => comment.id === target.commentId) ?? null;
+  }
+
+  const parent = comments.find((comment) => comment.id === target?.commentId);
+  return parent?.replies?.find((reply) => reply.id === target?.replyId) ?? null;
+}
+
+function toggleReactionThread(comments, target, reactionKey, author) {
+  return updateCommentThread(comments, target, (item) => {
+    const currentUsers = item.reactions?.[reactionKey] ?? [];
+    const hasReacted = currentUsers.includes(author);
+    const nextUsers = hasReacted
+      ? currentUsers.filter((name) => name !== author)
+      : [...currentUsers, author];
+
+    return {
+      ...item,
+      reactions: {
+        ...(item.reactions ?? {}),
+        [reactionKey]: nextUsers,
+      },
+    };
+  });
+}
+
+function togglePinnedComment(comments, commentId) {
+  return comments.map((comment) => ({
+    ...comment,
+    pinned: comment.id === commentId ? !comment.pinned : false,
+  }));
+}
+
+function formatCommentTimestamp(timestamp) {
+  if (!timestamp) {
+    return '';
+  }
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const diffMinutes = Math.round((Date.now() - date.getTime()) / 60000);
+  if (diffMinutes < 1) {
+    return 'Just now';
+  }
+
+  if (diffMinutes < 60) {
+    return `${diffMinutes} min ago`;
+  }
+
+  const now = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(now.getDate() - 1);
+
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  if (date.toDateString() === yesterday.toDateString()) {
+    return 'Yesterday';
+  }
+
+  return date.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
 function formatDistance(distanceValue) {
   const numericDistance = parseDistanceKm(distanceValue);
 
@@ -793,6 +912,7 @@ export default function App() {
   const [replyingToCommentId, setReplyingToCommentId] = useState('');
   const [commentActionTarget, setCommentActionTarget] = useState(null);
   const [commentEditText, setCommentEditText] = useState('');
+  const [activityInbox, setActivityInbox] = useState([]);
   const [visibleRunCount, setVisibleRunCount] = useState(RUNS_PAGE_SIZE);
   const [isRemindersEnabled, setIsRemindersEnabled] = useState(
     () => window.localStorage.getItem('runmate:reminders') === 'enabled',
@@ -804,6 +924,14 @@ export default function App() {
   const [isDetailsMenuOpen, setIsDetailsMenuOpen] = useState(false);
   const [createStep, setCreateStep] = useState(0);
   const [isGalleryMenuOpen, setIsGalleryMenuOpen] = useState(false);
+  const [weatherState, setWeatherState] = useState({
+    status: 'idle',
+    location: DEFAULT_WEATHER_LOCATION,
+    temperature: null,
+    apparentTemperature: null,
+    windSpeed: null,
+    precipitation: null,
+  });
   const galleryTouchRef = useRef({ x: 0, y: 0 });
   const galleryTapRef = useRef({ time: 0 });
   const commentPressTimerRef = useRef(null);
@@ -843,6 +971,10 @@ export default function App() {
     [editingRun, newRun],
   );
   const isFormValid = Object.keys(formErrors).length === 0;
+  const activeCommentTargetItem = useMemo(
+    () => findCommentThreadItem(selectedRun?.comments ?? [], commentActionTarget),
+    [commentActionTarget, selectedRun],
+  );
   const formRoute = useMemo(
     () => getRouteFromInputs(newRun.startLat, newRun.startLng, newRun.endLat, newRun.endLng),
     [newRun.endLat, newRun.endLng, newRun.startLat, newRun.startLng],
@@ -879,6 +1011,14 @@ export default function App() {
         )
         .slice(0, 4),
     [runs],
+  );
+  const orderedComments = useMemo(() => {
+    const comments = [...(selectedRun?.comments ?? [])];
+    return comments.sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned)));
+  }, [selectedRun]);
+  const weatherRecommendation = useMemo(
+    () => getWeatherRecommendation(weatherState),
+    [weatherState],
   );
   const stats = useMemo(() => {
     const now = new Date();
@@ -967,6 +1107,17 @@ export default function App() {
           });
         }
 
+        if (notifications.length) {
+          setActivityInbox((current) => [
+            ...notifications.map((item, index) => ({
+              id: `${Date.now()}-${index}`,
+              ...item,
+              createdAt: new Date().toISOString(),
+            })),
+            ...current,
+          ].slice(0, 6));
+        }
+
         previousRunsRef.current = loadedRuns;
         setIsLoadingRuns(false);
       },
@@ -1016,6 +1167,85 @@ export default function App() {
   useEffect(() => {
     setIsGalleryMenuOpen(false);
   }, [activePhotoIndex]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadWeather(latitude, longitude, locationName) {
+      try {
+        const response = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,apparent_temperature,wind_speed_10m&daily=precipitation_sum&timezone=auto&forecast_days=1`,
+        );
+
+        if (!response.ok) {
+          throw new Error('weather-failed');
+        }
+
+        const payload = await response.json();
+        if (cancelled) {
+          return;
+        }
+
+        setWeatherState({
+          status: 'ready',
+          location: {
+            name: locationName,
+            latitude,
+            longitude,
+          },
+          temperature: payload.current?.temperature_2m ?? null,
+          apparentTemperature: payload.current?.apparent_temperature ?? null,
+          windSpeed: payload.current?.wind_speed_10m ?? null,
+          precipitation: payload.daily?.precipitation_sum?.[0] ?? null,
+        });
+      } catch {
+        if (!cancelled) {
+          setWeatherState((current) => ({
+            ...current,
+            status: 'error',
+          }));
+        }
+      }
+    }
+
+    if (!('geolocation' in navigator)) {
+      loadWeather(
+        DEFAULT_WEATHER_LOCATION.latitude,
+        DEFAULT_WEATHER_LOCATION.longitude,
+        DEFAULT_WEATHER_LOCATION.name,
+      );
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setWeatherState((current) => ({
+      ...current,
+      status: 'loading',
+    }));
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        loadWeather(position.coords.latitude, position.coords.longitude, 'Your location');
+      },
+      () => {
+        loadWeather(
+          DEFAULT_WEATHER_LOCATION.latitude,
+          DEFAULT_WEATHER_LOCATION.longitude,
+          DEFAULT_WEATHER_LOCATION.name,
+        );
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 10000,
+        maximumAge: 15 * 60 * 1000,
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (page === displayPage) {
@@ -1426,6 +1656,7 @@ export default function App() {
       const nextComments = updateCommentThread(selectedRun.comments ?? [], commentActionTarget, (item) => ({
         ...item,
         text: commentEditText.trim(),
+        editedAt: new Date().toISOString(),
       }));
       const updatedRun = await updateRunComments(selectedRun, nextComments);
       setRuns((current) => current.map((run) => (run.id === updatedRun.id ? updatedRun : run)));
@@ -1434,6 +1665,36 @@ export default function App() {
       setSyncMessage('Comment updated.');
     } catch {
       setSyncMessage('Comment could not be updated right now.');
+    }
+  }
+
+  async function handleToggleReaction(target, reactionKey) {
+    if (!selectedRun || !accessUser) {
+      return;
+    }
+
+    try {
+      const nextComments = toggleReactionThread(selectedRun.comments ?? [], target, reactionKey, accessUser);
+      const updatedRun = await updateRunComments(selectedRun, nextComments);
+      setRuns((current) => current.map((run) => (run.id === updatedRun.id ? updatedRun : run)));
+    } catch {
+      setSyncMessage('Reaction could not be saved right now.');
+    }
+  }
+
+  async function handleTogglePinnedComment(commentId) {
+    if (!selectedRun) {
+      return;
+    }
+
+    try {
+      const nextComments = togglePinnedComment(selectedRun.comments ?? [], commentId);
+      const updatedRun = await updateRunComments(selectedRun, nextComments);
+      setRuns((current) => current.map((run) => (run.id === updatedRun.id ? updatedRun : run)));
+      setCommentActionTarget(null);
+      setSyncMessage('Pinned comment updated.');
+    } catch {
+      setSyncMessage('Pinned comment could not be updated right now.');
     }
   }
 
@@ -1751,8 +2012,9 @@ export default function App() {
                 ) : null}
               </div>
               <div className="topbar-actions">
-                <button className="icon-button" type="button" onClick={handleReminderToggle}>
+                <button className="icon-button icon-button-badged" type="button" onClick={handleReminderToggle}>
                   <Bell size={18} strokeWidth={2.3} />
+                  {activityInbox.length ? <span className="icon-badge">{activityInbox.length}</span> : null}
                 </button>
                 <button className="icon-button" type="button" onClick={() => navigateTo('calendar', 'forward')}>
                   <CalendarDays size={18} strokeWidth={2.3} />
@@ -1768,6 +2030,43 @@ export default function App() {
             </header>
 
             {syncMessage ? <p className="sync-banner">{syncMessage}</p> : null}
+
+            <section className={`weather-card ${weatherRecommendation.tone}`}>
+              <div>
+                <p className="topbar-label">Weather today</p>
+                <h2 className="weather-title">{weatherRecommendation.title}</h2>
+                <p className="weather-copy">{weatherRecommendation.message}</p>
+              </div>
+              <div className="weather-meta">
+                <strong>
+                  {weatherState.temperature != null ? `${Math.round(weatherState.temperature)}°C` : '--'}
+                </strong>
+                <span>{weatherState.location.name}</span>
+              </div>
+            </section>
+
+            {activityInbox.length ? (
+              <section className="inbox-card">
+                <div className="section-header">
+                  <div>
+                    <p className="topbar-label">Inbox</p>
+                    <h2 className="section-title">New reply activity</h2>
+                  </div>
+                </div>
+                <div className="inbox-list">
+                  {activityInbox.slice(0, 3).map((item) => (
+                    <article className="inbox-item" key={item.id}>
+                      <span className={`avatar-badge ${getUserTone(item.author)}`}>{item.author?.slice(0, 1) || 'S'}</span>
+                      <div>
+                        <strong>{item.author} replied</strong>
+                        <p>{item.runTitle}</p>
+                      </div>
+                      <small>{formatCommentTimestamp(item.createdAt)}</small>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             <section className="stats-grid" aria-label="Run stats">
               {stats.map((stat) => (
@@ -2408,9 +2707,9 @@ export default function App() {
                   Add comment
                 </button>
               </form>
-              {selectedRun.comments?.length ? (
+              {orderedComments.length ? (
                 <div className="comment-list">
-                  {selectedRun.comments.map((comment) => (
+                  {orderedComments.map((comment) => (
                     <article
                       className="comment-item"
                       key={comment.id}
@@ -2431,20 +2730,53 @@ export default function App() {
                           <span className={`avatar-badge ${getUserTone(comment.author)}`}>{comment.author?.slice(0, 1) || 'S'}</span>
                           <strong>{comment.author}</strong>
                         </div>
-                        <button
-                          className="comment-reply-button"
-                          type="button"
-                          onClick={() => {
-                            setReplyingToCommentId((current) => (current === comment.id ? '' : comment.id));
-                            setReplyText('');
-                          }}
-                        >
-                          Reply
-                        </button>
+                        <div className="comment-head-actions">
+                          {comment.pinned ? <span className="pinned-badge">Pinned</span> : null}
+                          <button
+                            className="comment-reply-button"
+                            type="button"
+                            onClick={() => {
+                              setReplyingToCommentId((current) => (current === comment.id ? '' : comment.id));
+                              setReplyText('');
+                            }}
+                          >
+                            Reply
+                          </button>
+                        </div>
+                      </div>
+                      <div className="comment-meta-row">
+                        <span>{formatCommentTimestamp(comment.createdAt)}</span>
+                        {comment.editedAt ? <span>edited</span> : null}
                       </div>
                       <p>{comment.text}</p>
+                      <div className="reaction-row">
+                        {[
+                          { key: 'love', label: 'Love', icon: '♡' },
+                          { key: 'fire', label: 'Fire', icon: '✦' },
+                          { key: 'clap', label: 'Clap', icon: '👏' },
+                        ].map((reaction) => {
+                          const reactionCount = comment.reactions?.[reaction.key]?.length ?? 0;
+                          const active = comment.reactions?.[reaction.key]?.includes(accessUser);
+
+                          return (
+                            <button
+                              className={`reaction-chip ${active ? 'reaction-chip-active' : ''}`}
+                              key={reaction.key}
+                              type="button"
+                              onClick={() => handleToggleReaction({ type: 'comment', commentId: comment.id }, reaction.key)}
+                            >
+                              <span>{reaction.icon}</span>
+                              {reactionCount ? <strong>{reactionCount}</strong> : null}
+                            </button>
+                          );
+                        })}
+                      </div>
                       {commentActionTarget?.type === 'comment' && commentActionTarget.commentId === comment.id ? (
                         <div className="comment-action-sheet">
+                          <p className="comment-action-meta">
+                            {formatCommentTimestamp(activeCommentTargetItem?.createdAt)}
+                            {activeCommentTargetItem?.editedAt ? ' • edited' : ''}
+                          </p>
                           <textarea
                             className="run-input comment-input reply-input"
                             value={commentEditText}
@@ -2457,6 +2789,13 @@ export default function App() {
                             </button>
                             <button className="danger-button" type="button" onClick={handleDeleteCommentTarget}>
                               Delete
+                            </button>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => handleTogglePinnedComment(comment.id)}
+                            >
+                              {comment.pinned ? 'Unpin' : 'Pin'}
                             </button>
                             <button
                               className="comment-reply-button"
@@ -2492,11 +2831,46 @@ export default function App() {
                                 <span className={`avatar-badge ${getUserTone(reply.author)}`}>{reply.author?.slice(0, 1) || 'S'}</span>
                                 <strong>{reply.author}</strong>
                               </div>
+                              <div className="comment-meta-row">
+                                <span>{formatCommentTimestamp(reply.createdAt)}</span>
+                                {reply.editedAt ? <span>edited</span> : null}
+                              </div>
                               <p>{reply.text}</p>
+                              <div className="reaction-row reaction-row-reply">
+                                {[
+                                  { key: 'love', label: 'Love', icon: '♡' },
+                                  { key: 'fire', label: 'Fire', icon: '✦' },
+                                  { key: 'clap', label: 'Clap', icon: '👏' },
+                                ].map((reaction) => {
+                                  const reactionCount = reply.reactions?.[reaction.key]?.length ?? 0;
+                                  const active = reply.reactions?.[reaction.key]?.includes(accessUser);
+
+                                  return (
+                                    <button
+                                      className={`reaction-chip ${active ? 'reaction-chip-active' : ''}`}
+                                      key={reaction.key}
+                                      type="button"
+                                      onClick={() =>
+                                        handleToggleReaction(
+                                          { type: 'reply', commentId: comment.id, replyId: reply.id },
+                                          reaction.key,
+                                        )
+                                      }
+                                    >
+                                      <span>{reaction.icon}</span>
+                                      {reactionCount ? <strong>{reactionCount}</strong> : null}
+                                    </button>
+                                  );
+                                })}
+                              </div>
                               {commentActionTarget?.type === 'reply' &&
                               commentActionTarget.commentId === comment.id &&
                               commentActionTarget.replyId === reply.id ? (
                                 <div className="comment-action-sheet reply-action-sheet">
+                                  <p className="comment-action-meta">
+                                    {formatCommentTimestamp(activeCommentTargetItem?.createdAt)}
+                                    {activeCommentTargetItem?.editedAt ? ' • edited' : ''}
+                                  </p>
                                   <textarea
                                     className="run-input comment-input reply-input"
                                     value={commentEditText}
@@ -2529,11 +2903,12 @@ export default function App() {
                       ) : null}
                       {replyingToCommentId === comment.id ? (
                         <form className="reply-form" onSubmit={(event) => handleAddReply(event, comment.id)}>
+                          <p className="replying-label">Replying to {comment.author}</p>
                           <textarea
                             className="run-input comment-input reply-input"
                             value={replyText}
                             onChange={(event) => setReplyText(event.target.value)}
-                            placeholder={`Reply as ${accessUser || 'Guest'}`}
+                            placeholder={`Write something back as ${accessUser || 'Guest'}`}
                           />
                           <div className="reply-form-actions">
                             <button className="secondary-button" type="submit">
@@ -2557,7 +2932,7 @@ export default function App() {
                   ))}
                 </div>
               ) : (
-                <p className="details-empty">No comments yet.</p>
+                <p className="details-empty">Start the story of this run.</p>
               )}
             </section>
           </section>

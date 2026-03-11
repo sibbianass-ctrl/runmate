@@ -75,6 +75,10 @@ function saveQueue(queueItems) {
 function normalizeComments(comments = []) {
   return comments.map((comment) => ({
     ...comment,
+    createdAt: comment.createdAt ?? new Date().toISOString(),
+    editedAt: comment.editedAt ?? '',
+    pinned: Boolean(comment.pinned),
+    reactions: comment.reactions ?? {},
     replies: normalizeComments(comment.replies ?? []),
   }));
 }
@@ -322,6 +326,9 @@ export async function addCommentToRun(run, commentText, author = 'Guest', parent
     text: commentText.trim(),
     author,
     createdAt: new Date().toISOString(),
+    editedAt: '',
+    pinned: false,
+    reactions: {},
     replies: [],
   };
 
