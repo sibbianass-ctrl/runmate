@@ -1822,10 +1822,13 @@ body::-webkit-scrollbar-thumb {
   place-items: center;
   width: 1.95rem;
   height: 1.95rem;
+  flex: 0 0 1.95rem;
   border-radius: 999px;
   color: #fff;
   font-size: 0.82rem;
   font-weight: 800;
+  line-height: 1;
+  text-align: center;
 }
 
 .tone-mariame {
@@ -2179,17 +2182,6 @@ body::-webkit-scrollbar-thumb {
     animation: none !important;
     transition: none !important;
   }
-}
-
-.avatar-badge {
-  display: inline-grid;
-  place-items: center;
-  width: 1.95rem;
-  height: 1.95rem;
-  border-radius: 999px;
-  color: #fff;
-  font-size: 0.82rem;
-  font-weight: 800;
 }
 
 .tone-mariame {
