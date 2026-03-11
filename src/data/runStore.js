@@ -114,51 +114,8 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([array], { type: mime });
 }
 
-async function compressImageFile(file) {
-  if (!file.type.startsWith('image/')) {
-    return file;
-  }
-
-  const sourceUrl = await fileToDataUrl(file);
-  const image = await new Promise((resolve, reject) => {
-    const nextImage = new Image();
-    nextImage.onload = () => resolve(nextImage);
-    nextImage.onerror = () => reject(new Error(`Failed to decode image: ${file.name}`));
-    nextImage.src = sourceUrl;
-  });
-
-  const maxSide = 1600;
-  const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
-  const width = Math.max(1, Math.round(image.width * scale));
-  const height = Math.max(1, Math.round(image.height * scale));
-
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-
-  const context = canvas.getContext('2d');
-  if (!context) {
-    return file;
-  }
-
-  context.drawImage(image, 0, 0, width, height);
-
-  const blob = await new Promise((resolve) => {
-    canvas.toBlob(resolve, 'image/jpeg', 0.82);
-  });
-
-  if (!blob) {
-    return file;
-  }
-
-  return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), {
-    type: 'image/jpeg',
-    lastModified: Date.now(),
-  });
-}
-
 async function normalizeUploadFiles(files) {
-  return Promise.all(files.map((file) => compressImageFile(file)));
+  return files;
 }
 
 async function createLocalPhotos(runId, files) {

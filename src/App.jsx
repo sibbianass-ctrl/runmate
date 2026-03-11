@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet';
+import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import {
   ArrowLeft,
@@ -366,10 +366,18 @@ function useLocationCoordinates(locationName) {
   return state;
 }
 
-function FitMapToCoordinates({ coordinates }) {
+function FitMapToCoordinates({ coordinates, route }) {
   const map = useMap();
 
   useEffect(() => {
+    if (route?.start && route?.end) {
+      map.fitBounds([route.start, route.end], {
+        padding: [28, 28],
+        animate: true,
+      });
+      return;
+    }
+
     if (!coordinates) {
       return;
     }
@@ -377,12 +385,47 @@ function FitMapToCoordinates({ coordinates }) {
     map.setView(coordinates, 15, {
       animate: true,
     });
-  }, [coordinates, map]);
+  }, [coordinates, map, route]);
 
   return null;
 }
 
-function RunLocationMap({ locationName, coordinates, route }) {
+function EditableRouteLayer({ route, onRouteChange }) {
+  useMapEvents({
+    contextmenu(event) {
+      if (!onRouteChange) {
+        return;
+      }
+
+      const point = [event.latlng.lat, event.latlng.lng];
+
+      if (!route?.start) {
+        onRouteChange({
+          start: point,
+          end: route?.end ?? null,
+        });
+        return;
+      }
+
+      if (!route?.end) {
+        onRouteChange({
+          start: route.start,
+          end: point,
+        });
+        return;
+      }
+
+      onRouteChange({
+        start: route.start,
+        end: point,
+      });
+    },
+  });
+
+  return null;
+}
+
+function RunLocationMap({ locationName, coordinates, route, editable = false, onRouteChange }) {
   const center = route?.start ?? coordinates ?? DEFAULT_MAP_CENTER;
   const routePoints = route?.start && route?.end ? [route.start, route.end] : [];
 
@@ -400,12 +443,47 @@ function RunLocationMap({ locationName, coordinates, route }) {
           attribution='&copy; OpenStreetMap contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <FitMapToCoordinates coordinates={route?.end ?? route?.start ?? coordinates} />
+        <FitMapToCoordinates coordinates={route?.end ?? route?.start ?? coordinates} route={route} />
+        {editable ? <EditableRouteLayer route={route} onRouteChange={onRouteChange} /> : null}
         {routePoints.length ? (
           <>
             <Polyline positions={routePoints} pathOptions={{ color: '#00a86b', weight: 5, opacity: 0.85 }} />
-            <Marker position={route.start} icon={mapPinIcon} />
-            <Marker position={route.end} icon={mapEndPinIcon} />
+            <Marker
+              position={route.start}
+              icon={mapPinIcon}
+              draggable={editable}
+              eventHandlers={
+                editable
+                  ? {
+                      dragend: (event) => {
+                        const nextPoint = event.target.getLatLng();
+                        onRouteChange?.({
+                          start: [nextPoint.lat, nextPoint.lng],
+                          end: route.end,
+                        });
+                      },
+                    }
+                  : undefined
+              }
+            />
+            <Marker
+              position={route.end}
+              icon={mapEndPinIcon}
+              draggable={editable}
+              eventHandlers={
+                editable
+                  ? {
+                      dragend: (event) => {
+                        const nextPoint = event.target.getLatLng();
+                        onRouteChange?.({
+                          start: route.start,
+                          end: [nextPoint.lat, nextPoint.lng],
+                        });
+                      },
+                    }
+                  : undefined
+              }
+            />
             <CircleMarker
               center={route.start}
               radius={14}
@@ -417,6 +495,25 @@ function RunLocationMap({ locationName, coordinates, route }) {
               pathOptions={{ color: 'rgba(36,72,59,0.22)', fillColor: '#24483b', fillOpacity: 0.12, weight: 6 }}
             />
           </>
+        ) : route?.start ? (
+          <Marker
+            position={route.start}
+            icon={mapPinIcon}
+            draggable={editable}
+            eventHandlers={
+              editable
+                ? {
+                    dragend: (event) => {
+                      const nextPoint = event.target.getLatLng();
+                      onRouteChange?.({
+                        start: [nextPoint.lat, nextPoint.lng],
+                        end: route.end ?? null,
+                      });
+                    },
+                  }
+                : undefined
+            }
+          />
         ) : coordinates ? (
           <Marker position={coordinates} icon={mapPinIcon} />
         ) : null}
@@ -425,6 +522,7 @@ function RunLocationMap({ locationName, coordinates, route }) {
         <span className="map-overlay-label">{routePoints.length ? 'Route preview' : 'Run spot'}</span>
         <strong>{locationName}</strong>
         {route?.distanceKm != null ? <small>{formatRouteDistance(route.distanceKm)}</small> : null}
+        {editable ? <small>Long press map: start, then end. Drag pins to refine.</small> : null}
       </div>
     </div>
   );
@@ -1279,6 +1377,36 @@ export default function App() {
     setNewRun((current) => ({ ...current, photos: files }));
   }
 
+  function handleRouteChange(nextRoute) {
+    setFormError('');
+    setTouchedFields((current) => ({
+      ...current,
+      route: true,
+    }));
+    setNewRun((current) => ({
+      ...current,
+      startLat: formatCoordinate(nextRoute?.start?.[0]),
+      startLng: formatCoordinate(nextRoute?.start?.[1]),
+      endLat: formatCoordinate(nextRoute?.end?.[0]),
+      endLng: formatCoordinate(nextRoute?.end?.[1]),
+    }));
+  }
+
+  function handleClearRoute() {
+    setNewRun((current) => ({
+      ...current,
+      startLat: '',
+      startLng: '',
+      endLat: '',
+      endLng: '',
+    }));
+    setTouchedFields((current) => ({
+      ...current,
+      route: false,
+    }));
+    setFormError('');
+  }
+
   async function handleAddRun(event) {
     event.preventDefault();
 
@@ -1308,6 +1436,7 @@ export default function App() {
 
     try {
       setIsSavingRun(true);
+      const shouldOptimisticallyUpdateRuns = !isCloudEnabled() || !isOnline();
       const routePayload =
         formRoute?.status === 'ready'
           ? {
@@ -1335,11 +1464,13 @@ export default function App() {
         ? await updateRun(editingRun.id, runPayload, newRun.photos)
         : await saveRun({ ...runPayload, photos: newRun.photos });
 
-      setRuns((current) =>
-        editingRun
-          ? current.map((run) => (run.id === savedRun.id ? savedRun : run))
-          : [savedRun, ...current],
-      );
+      if (editingRun || shouldOptimisticallyUpdateRuns) {
+        setRuns((current) =>
+          editingRun
+            ? current.map((run) => (run.id === savedRun.id ? savedRun : run))
+            : [savedRun, ...current],
+        );
+      }
       setSelectedRunId(savedRun.id);
       navigateTo(editingRun ? 'details' : 'home', 'backward');
       setEditingRunId('');
@@ -1744,11 +1875,18 @@ export default function App() {
                 <section className="route-fields-card">
                   <div className="route-fields-header">
                     <p className="label">Route points</p>
-                    <span className="route-distance-pill">
-                      {formRoute?.status === 'ready'
-                        ? formatRouteDistance(formRoute.distanceKm)
-                        : 'Optional'}
-                    </span>
+                    <div className="route-fields-actions">
+                      <span className="route-distance-pill">
+                        {formRoute?.status === 'ready'
+                          ? formatRouteDistance(formRoute.distanceKm)
+                          : 'Optional'}
+                      </span>
+                      {(newRun.startLat || newRun.startLng || newRun.endLat || newRun.endLng) ? (
+                        <button className="comment-reply-button" type="button" onClick={handleClearRoute}>
+                          Clear route
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="route-grid">
                     <input
@@ -1826,24 +1964,24 @@ export default function App() {
                     ) : null}
                   </section>
                 ) : null}
-                {newRun.location.trim() || formRoute?.status === 'ready' ? (
-                  <section className="live-map-panel">
-                    <div className="photo-preview-header">
-                      <p className="label">Live map preview</p>
-                      <span className="preview-badge preview-badge-soft">
-                        {formRoute?.status === 'ready' ? 'Route' : 'Pin'}
-                      </span>
-                    </div>
-                    <RunLocationMap
-                      locationName={newRun.location.trim() || 'Route preview'}
-                      coordinates={formMapLocation.coordinates}
-                      route={formRoute?.status === 'ready' ? formRoute : null}
-                    />
-                    {newRun.location.trim() && formMapLocation.status === 'loading' ? (
-                      <p className="details-empty map-status">Preview is finding this location...</p>
-                    ) : null}
-                  </section>
-                ) : null}
+                <section className="live-map-panel">
+                  <div className="photo-preview-header">
+                    <p className="label">Live map preview</p>
+                    <span className="preview-badge preview-badge-soft">
+                      {formRoute?.status === 'ready' || formRoute?.status === 'partial' ? 'Route' : 'Pin'}
+                    </span>
+                  </div>
+                  <RunLocationMap
+                    locationName={newRun.location.trim() || 'Route preview'}
+                    coordinates={formMapLocation.coordinates}
+                    route={formRoute?.status === 'ready' || formRoute?.status === 'partial' ? formRoute : null}
+                    editable
+                    onRouteChange={handleRouteChange}
+                  />
+                  {newRun.location.trim() && formMapLocation.status === 'loading' ? (
+                    <p className="details-empty map-status">Preview is finding this location...</p>
+                  ) : null}
+                </section>
                 {formError ? <p className="form-error">{formError}</p> : null}
                 <button className="primary-button" type="submit" disabled={!isFormValid || isSavingRun}>
                   {isSavingRun ? 'Saving...' : editingRun ? 'Save changes' : 'Add run'}
